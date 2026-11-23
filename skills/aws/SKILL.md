@@ -148,6 +148,8 @@ aws:
 
 S3 routes use root paths matching the real AWS S3 wire format. Legacy `/s3/` prefixed paths are also supported.
 
+Conditional requests follow S3. `PutObject` and `CopyObject` accept `If-None-Match: *` and `If-Match`, and return `412 PreconditionFailed` when the condition fails; the check and the write are one atomic step, so exactly one of several concurrent conditional writes succeeds. `GetObject` and `HeadObject` honor `If-Match`, `If-None-Match`, `If-Modified-Since`, and `If-Unmodified-Since` with S3 precedence, returning `304 Not Modified` or `412`, and accept a single `Range`. `CopyObject` honors the `x-amz-copy-source-if-*` headers, and `DeleteObject` and `DeleteObjects` accept an ETag to match.
+
 ```bash
 # List all buckets
 curl http://localhost:4006/ \
@@ -192,6 +194,29 @@ curl -X DELETE http://localhost:4006/my-bucket/path/to/file.txt \
 curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-amz-copy-source: /source-bucket/original.txt"
+
+# Create only if the key does not exist (412 if it does)
+curl -X PUT http://localhost:4006/my-bucket/lock.json \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "If-None-Match: *" \
+  --data-binary '{"owner":"a"}'
+
+# Replace only if the ETag still matches (412 if it changed)
+curl -X PUT http://localhost:4006/my-bucket/lock.json \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'If-Match: "<etag>"' \
+  --data-binary '{"owner":"b"}'
+
+# Read a byte range
+curl http://localhost:4006/my-bucket/path/to/file.txt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Range: bytes=0-99"
+
+# Delete several objects
+curl -X POST "http://localhost:4006/my-bucket?delete" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/xml" \
+  --data-binary '<Delete><Object><Key>a.txt</Key></Object><Object><Key>b.txt</Key></Object></Delete>'
 ```
 
 ### SQS

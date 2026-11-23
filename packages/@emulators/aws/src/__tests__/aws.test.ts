@@ -288,6 +288,322 @@ describe("AWS plugin - S3 Objects", () => {
   });
 });
 
+describe("AWS plugin - S3 conditional writes", () => {
+  let app: Hono<AppEnv>;
+
+  beforeEach(() => {
+    app = createTestApp().app;
+  });
+
+  const put = (key: string, body: string, headers: Record<string, string> = {}) =>
+    app.request(`${base}/emulate-default/${key}`, {
+      method: "PUT",
+      headers: { ...authHeaders(), ...headers },
+      body,
+    });
+
+  it("creates with If-None-Match: * only when the key is absent", async () => {
+    const first = await put("once.txt", "one", { "If-None-Match": "*" });
+    expect(first.status).toBe(200);
+
+    const second = await put("once.txt", "two", { "If-None-Match": "*" });
+    expect(second.status).toBe(412);
+    expect(await second.text()).toContain("<Code>PreconditionFailed</Code>");
+
+    const get = await app.request(`${base}/emulate-default/once.txt`, { headers: authHeaders() });
+    expect(await get.text()).toBe("one");
+  });
+
+  it("swaps with If-Match only when the ETag matches", async () => {
+    const v1 = (await put("cas.txt", "one")).headers.get("ETag")!;
+    const v2Res = await put("cas.txt", "two", { "If-Match": v1 });
+    expect(v2Res.status).toBe(200);
+    const v2 = v2Res.headers.get("ETag")!;
+    expect(v2).not.toBe(v1);
+
+    const stale = await put("cas.txt", "stale", { "If-Match": v1 });
+    expect(stale.status).toBe(412);
+
+    const missing = await put("missing.txt", "x", { "If-Match": v2 });
+    expect(missing.status).toBe(404);
+
+    const get = await app.request(`${base}/emulate-default/cas.txt`, { headers: authHeaders() });
+    expect(await get.text()).toBe("two");
+  });
+
+  it("lets exactly one of concurrent conditional creates win", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 16 }, (_, i) => put("race.txt", String(i), { "If-None-Match": "*" })),
+    );
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 412)).toHaveLength(15);
+  });
+
+  it("deletes with If-Match only when the ETag matches", async () => {
+    const etag = (await put("del.txt", "one")).headers.get("ETag")!;
+    const wrong = await app.request(`${base}/emulate-default/del.txt`, {
+      method: "DELETE",
+      headers: { ...authHeaders(), "If-Match": '"0"' },
+    });
+    expect(wrong.status).toBe(412);
+    const right = await app.request(`${base}/emulate-default/del.txt`, {
+      method: "DELETE",
+      headers: { ...authHeaders(), "If-Match": etag },
+    });
+    expect(right.status).toBe(204);
+  });
+
+  it("deletes several keys with DeleteObjects", async () => {
+    await put("multi/a&b", "1");
+    await put("multi/c", "2");
+    const res = await app.request(`${base}/emulate-default?delete`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/xml" },
+      body: "<Delete><Object><Key>multi/a&amp;b</Key></Object><Object><Key>multi/missing</Key></Object></Delete>",
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("<Deleted><Key>multi/a&amp;b</Key></Deleted>");
+    expect(text).toContain("<Deleted><Key>multi/missing</Key></Deleted>");
+    const list = await app.request(`${base}/emulate-default?list-type=2&prefix=multi/`, { headers: authHeaders() });
+    const listed = await list.text();
+    expect(listed).not.toContain("a&amp;b");
+    expect(listed).toContain("<Key>multi/c</Key>");
+  });
+
+  it("lists keys in ascending byte order", async () => {
+    for (const key of ["b", "B", "a", "\u00e9", "\ud83d\ude00", "\uff5e"]) {
+      await put(`order/${encodeURIComponent(key)}`, "");
+    }
+    const res = await app.request(`${base}/emulate-default?list-type=2&prefix=order/`, { headers: authHeaders() });
+    const keys = [...(await res.text()).matchAll(/<Key>order\/(.*?)<\/Key>/g)].map((m) => m[1]);
+    expect(keys).toEqual(["B", "a", "b", "\u00e9", "\uff5e", "\ud83d\ude00"]);
+  });
+});
+
+describe("AWS plugin - S3 conditional reads and ranges", () => {
+  let app: Hono<AppEnv>;
+  let etag: string;
+  let lastModified: string;
+  const url = `${base}/emulate-default/read.txt`;
+  const hourAgo = () => new Date(Date.now() - 3_600_000).toUTCString();
+  const inAnHour = () => new Date(Date.now() + 3_600_000).toUTCString();
+
+  beforeEach(async () => {
+    app = createTestApp().app;
+    const put = await app.request(url, { method: "PUT", headers: authHeaders(), body: "abcdefghij" });
+    etag = put.headers.get("ETag")!;
+    const head = await app.request(url, { method: "HEAD", headers: authHeaders() });
+    lastModified = head.headers.get("Last-Modified")!;
+  });
+
+  const get = (headers: Record<string, string>, method = "GET") =>
+    app.request(url, { method, headers: { ...authHeaders(), ...headers } });
+
+  it.each([
+    ["If-Match matches", () => ({ "If-Match": etag }), 200],
+    ["If-Match accepts *", () => ({ "If-Match": "*" }), 200],
+    ["If-Match differs", () => ({ "If-Match": '"0"' }), 412],
+    ["If-None-Match matches", () => ({ "If-None-Match": etag }), 304],
+    ["If-None-Match differs", () => ({ "If-None-Match": '"0"' }), 200],
+    ["If-Modified-Since at Last-Modified", () => ({ "If-Modified-Since": lastModified }), 304],
+    ["If-Modified-Since in the past", () => ({ "If-Modified-Since": hourAgo() }), 200],
+    ["If-Unmodified-Since at Last-Modified", () => ({ "If-Unmodified-Since": lastModified }), 200],
+    ["If-Unmodified-Since in the past", () => ({ "If-Unmodified-Since": hourAgo() }), 412],
+    ["If-Unmodified-Since unparseable", () => ({ "If-Unmodified-Since": "yesterday" }), 200],
+    ["If-Match wins over If-Unmodified-Since", () => ({ "If-Match": etag, "If-Unmodified-Since": hourAgo() }), 200],
+    [
+      "If-None-Match wins over If-Modified-Since",
+      () => ({ "If-None-Match": etag, "If-Modified-Since": hourAgo() }),
+      304,
+    ],
+    [
+      "If-Modified-Since is ignored with If-None-Match",
+      () => ({ "If-None-Match": '"0"', "If-Modified-Since": inAnHour() }),
+      200,
+    ],
+    ["If-Match is checked before If-None-Match", () => ({ "If-Match": '"0"', "If-None-Match": etag }), 412],
+  ])("GET with %s", async (_, headers, status) => {
+    const res = await get(headers());
+    expect(res.status).toBe(status);
+    if (status === 304) {
+      expect(res.headers.get("ETag")).toBe(etag);
+      expect(await res.text()).toBe("");
+    }
+    if (status === 412) {
+      expect(await res.text()).toContain("<Code>PreconditionFailed</Code>");
+    }
+  });
+
+  it("applies the same conditions to HEAD", async () => {
+    expect((await get({ "If-None-Match": etag }, "HEAD")).status).toBe(304);
+    expect((await get({ "If-Match": '"0"' }, "HEAD")).status).toBe(412);
+    expect((await get({ "If-Match": etag }, "HEAD")).status).toBe(200);
+  });
+
+  it.each([
+    ["bytes=1-3", "bcd", "bytes 1-3/10"],
+    ["bytes=7-", "hij", "bytes 7-9/10"],
+    ["bytes=-2", "ij", "bytes 8-9/10"],
+    ["bytes=-20", "abcdefghij", "bytes 0-9/10"],
+    ["bytes=5-100", "fghij", "bytes 5-9/10"],
+  ])("GET with Range %s", async (range, body, contentRange) => {
+    const res = await get({ Range: range });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("Content-Range")).toBe(contentRange);
+    expect(res.headers.get("Content-Length")).toBe(String(body.length));
+    expect(await res.text()).toBe(body);
+  });
+
+  it("rejects a range that starts past the end", async () => {
+    const res = await get({ Range: "bytes=10-" });
+    expect(res.status).toBe(416);
+    expect(await res.text()).toContain("<Code>InvalidRange</Code>");
+  });
+
+  it("ignores a malformed range", async () => {
+    const res = await get({ Range: "bytes=3-1" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("abcdefghij");
+  });
+
+  it("evaluates conditions before the range", async () => {
+    expect((await get({ Range: "bytes=10-", "If-None-Match": etag })).status).toBe(304);
+  });
+
+  it("returns the range length on HEAD", async () => {
+    const res = await get({ Range: "bytes=0-3" }, "HEAD");
+    expect(res.status).toBe(206);
+    expect(res.headers.get("Content-Length")).toBe("4");
+    expect(res.headers.get("Content-Range")).toBe("bytes 0-3/10");
+  });
+});
+
+describe("AWS plugin - S3 CopyObject source conditions", () => {
+  let app: Hono<AppEnv>;
+  let etag: string;
+  const hourAgo = () => new Date(Date.now() - 3_600_000).toUTCString();
+
+  beforeEach(async () => {
+    app = createTestApp().app;
+    const put = await app.request(`${base}/emulate-default/dir/source%20file.txt`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: "source",
+    });
+    etag = put.headers.get("ETag")!;
+  });
+
+  const copy = (headers: Record<string, string>) =>
+    app.request(`${base}/emulate-default/copy.txt`, {
+      method: "PUT",
+      headers: {
+        ...authHeaders(),
+        "x-amz-copy-source": "/emulate-default/dir/source%20file.txt",
+        ...headers,
+      },
+    });
+
+  it.each([
+    ["no condition", () => ({}), 200],
+    ["if-match matches", () => ({ "x-amz-copy-source-if-match": etag }), 200],
+    ["if-match differs", () => ({ "x-amz-copy-source-if-match": '"0"' }), 412],
+    ["if-none-match matches", () => ({ "x-amz-copy-source-if-none-match": etag }), 412],
+    ["if-modified-since in the past", () => ({ "x-amz-copy-source-if-modified-since": hourAgo() }), 200],
+    ["if-unmodified-since in the past", () => ({ "x-amz-copy-source-if-unmodified-since": hourAgo() }), 412],
+    [
+      "if-match wins over if-unmodified-since",
+      () => ({ "x-amz-copy-source-if-match": etag, "x-amz-copy-source-if-unmodified-since": hourAgo() }),
+      200,
+    ],
+    [
+      "if-none-match wins over if-modified-since",
+      () => ({ "x-amz-copy-source-if-none-match": etag, "x-amz-copy-source-if-modified-since": hourAgo() }),
+      412,
+    ],
+  ])("copies with %s", async (_, headers, status) => {
+    const res = await copy(headers());
+    expect(res.status).toBe(status);
+    const target = await app.request(`${base}/emulate-default/copy.txt`, { headers: authHeaders() });
+    if (status === 200) {
+      expect(await target.text()).toBe("source");
+    } else {
+      expect(await res.text()).toContain("<Code>PreconditionFailed</Code>");
+      expect(target.status).toBe(404);
+    }
+  });
+});
+
+describe("AWS plugin - S3 DeleteObjects conditions", () => {
+  let app: Hono<AppEnv>;
+
+  beforeEach(() => {
+    app = createTestApp().app;
+  });
+
+  const put = async (key: string) =>
+    (
+      await app.request(`${base}/emulate-default/${key}`, { method: "PUT", headers: authHeaders(), body: key })
+    ).headers.get("ETag")!;
+  const exists = async (key: string) =>
+    (await app.request(`${base}/emulate-default/${key}`, { method: "HEAD", headers: authHeaders() })).status === 200;
+  const deleteObjects = (body: string) =>
+    app.request(`${base}/emulate-default?delete`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/xml" },
+      body,
+    });
+
+  it("deletes only the objects whose ETag matches", async () => {
+    const etagA = await put("a");
+    await put("b");
+    const res = await deleteObjects(
+      `<Delete><Object><Key>a</Key><ETag>${etagA.replace(/"/g, "&quot;")}</ETag></Object>` +
+        `<Object><Key>b</Key><ETag>"0"</ETag></Object>` +
+        `<Object><Key>gone</Key><ETag>"0"</ETag></Object></Delete>`,
+    );
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(text).toContain("<Deleted><Key>a</Key></Deleted>");
+    expect(text).toContain("<Error><Key>b</Key><Code>PreconditionFailed</Code>");
+    expect(text).toContain("<Error><Key>gone</Key><Code>NoSuchKey</Code>");
+    expect(await exists("a")).toBe(false);
+    expect(await exists("b")).toBe(true);
+  });
+
+  it("treats an empty ETag as a condition that fails", async () => {
+    await put("a");
+    await put("b");
+    const res = await deleteObjects(
+      `<Delete><Object><Key>a</Key><ETag/></Object><Object><Key>b</Key><ETag></ETag></Object></Delete>`,
+    );
+    const text = await res.text();
+    expect(text).toContain("<Error><Key>a</Key><Code>PreconditionFailed</Code>");
+    expect(text).toContain("<Error><Key>b</Key><Code>PreconditionFailed</Code>");
+    expect(await exists("a")).toBe(true);
+    expect(await exists("b")).toBe(true);
+  });
+
+  it("decodes each character reference once", async () => {
+    await put(encodeURIComponent("<"));
+    const res = await deleteObjects(`<Delete><Object><Key>&#38;lt;</Key></Object></Delete>`);
+    expect(await res.text()).toContain("<Deleted><Key>&amp;lt;</Key></Deleted>");
+    expect(await exists(encodeURIComponent("<"))).toBe(true);
+  });
+
+  it("reports only errors in quiet mode", async () => {
+    await put("a");
+    await put("b");
+    const res = await deleteObjects(
+      `<Delete><Quiet>true</Quiet><Object><Key>a</Key></Object><Object><Key>b</Key><ETag>"0"</ETag></Object></Delete>`,
+    );
+    const text = await res.text();
+    expect(text).not.toContain("<Deleted>");
+    expect(text).toContain("<Error><Key>b</Key><Code>PreconditionFailed</Code>");
+    expect(await exists("a")).toBe(false);
+  });
+});
+
 describe("AWS plugin - S3 ListObjectsV2 pagination", () => {
   let app: Hono<AppEnv>;
 
