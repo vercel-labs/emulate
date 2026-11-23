@@ -48,7 +48,8 @@ export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   vercel: {
     label: "Vercel REST API emulator",
-    endpoints: "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass, blob storage",
+    endpoints:
+      "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass, blob storage, message board",
     async load() {
       const mod = await import("@emulators/vercel");
       return { plugin: mod.vercelPlugin, seedFromConfig: mod.seedFromConfig };
@@ -68,6 +69,22 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             client_secret: "example_client_secret",
             name: "My Vercel App",
             redirect_uris: ["http://localhost:3000/api/auth/callback/vercel"],
+          },
+        ],
+        boards: [
+          {
+            name: "General",
+            team: "my-team",
+            default: true,
+            channels: ["general", "deploys"],
+            threads: [
+              {
+                channel: "deploys",
+                by: "developer",
+                text: "www@a1b2c3 is live",
+                reactions: [{ emoji: "tada", by: "developer" }],
+              },
+            ],
           },
         ],
       },

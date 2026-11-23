@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@vercel/blob": "2.8.1",
+    "@vercel/board": "^0.52.0",
     "tsc-ts": "0.1.3",
     "tsup": "^8",
     "typescript": "^7.0.2",

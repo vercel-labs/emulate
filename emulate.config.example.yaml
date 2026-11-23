@@ -58,6 +58,18 @@ vercel:
       name: Code App (Vercel)
       redirect_uris:
         - http://localhost:3000/api/auth/callback/vercel
+  boards:
+    - name: General
+      team: my-team
+      default: true
+      channels: [general, deploys]
+      threads:
+        - channel: deploys
+          text: www@a1b2c3 is live
+          by: developer
+          reactions:
+            - emoji: tada
+              by: developer
 
 google:
   users:
