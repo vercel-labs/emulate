@@ -8,7 +8,7 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="mx-auto max-w-3xl px-6 pb-20 pt-16 sm:pt-24">
         <h1 className="mb-4 text-3xl font-bold tracking-tight text-neutral-900 sm:text-4xl dark:text-neutral-50">
-          Local API emulation for dev and CI
+          API emulators for local dev, CI and sandboxes
         </h1>
         <p className="mb-8 max-w-xl text-base text-neutral-600 dark:text-neutral-400">
           Stateful, production-fidelity replacements for Stripe, GitHub, Google, AWS, and 7 more services. No API keys.
