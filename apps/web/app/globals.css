@@ -105,24 +105,3 @@
 button {
   cursor: pointer;
 }
-
-/* The docs lockup's slash follows the OG card spacing, scaled to the 18px logo. */
-header .w-5.text-center.text-gray-alpha-400 {
-  position: relative;
-  width: 6.2px;
-  height: 14.8px;
-  margin-left: 1px;
-  margin-right: -2.3px;
-}
-
-header .w-5.text-center.text-gray-alpha-400 > svg {
-  display: none;
-}
-
-header .w-5.text-center.text-gray-alpha-400::after {
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  clip-path: polygon(83.1% 0, 100% 0, 18.3% 100%, 0 100%);
-  content: "";
-}

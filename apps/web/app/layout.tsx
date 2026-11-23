@@ -12,6 +12,7 @@ import { versionedOgImage } from "@/lib/og-version";
 import { getPageTitle } from "@/lib/page-titles";
 import { isPreview, siteUrl } from "@/lib/site";
 import "./globals.css";
+import "./labs-lockup.css";
 
 const title = "emulate | API emulators for local dev, CI and sandboxes";
 const ogImage = versionedOgImage("/og", getPageTitle("")!);
