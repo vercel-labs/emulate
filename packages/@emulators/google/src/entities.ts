@@ -10,6 +10,32 @@ export interface GoogleUser extends Entity {
   email_verified: boolean;
   locale: string;
   hd: string | null;
+  /** Directory API fields. Users seeded before these existed read as their defaults. */
+  is_admin?: boolean;
+  suspended?: boolean;
+  suspension_time?: string | null;
+  org_unit_path?: string;
+  change_password_at_next_login?: boolean;
+  include_in_global_address_list?: boolean;
+  creation_time?: string;
+  last_login_time?: string | null;
+}
+
+export interface GoogleGroup extends Entity {
+  google_id: string;
+  email: string;
+  name: string;
+  description: string;
+  admin_created: boolean;
+}
+
+export interface GoogleGroupMember extends Entity {
+  group_google_id: string;
+  member_id: string;
+  email: string;
+  role: "OWNER" | "MANAGER" | "MEMBER";
+  type: "USER" | "GROUP" | "EXTERNAL";
+  delivery_settings: string;
 }
 
 export interface GoogleOAuthClient extends Entity {

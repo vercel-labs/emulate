@@ -1,6 +1,8 @@
 import { Store, type Collection } from "@emulators/core";
 import type {
   GoogleUser,
+  GoogleGroup,
+  GoogleGroupMember,
   GoogleOAuthClient,
   GoogleMessage,
   GoogleDraft,
@@ -17,6 +19,8 @@ import type {
 
 export interface GoogleStore {
   users: Collection<GoogleUser>;
+  groups: Collection<GoogleGroup>;
+  groupMembers: Collection<GoogleGroupMember>;
   oauthClients: Collection<GoogleOAuthClient>;
   messages: Collection<GoogleMessage>;
   drafts: Collection<GoogleDraft>;
@@ -34,6 +38,12 @@ export interface GoogleStore {
 export function getGoogleStore(store: Store): GoogleStore {
   return {
     users: store.collection<GoogleUser>("google.users", ["uid", "email"]),
+    groups: store.collection<GoogleGroup>("google.groups", ["google_id", "email"]),
+    groupMembers: store.collection<GoogleGroupMember>("google.group_members", [
+      "group_google_id",
+      "member_id",
+      "email",
+    ]),
     oauthClients: store.collection<GoogleOAuthClient>("google.oauth_clients", ["client_id"]),
     messages: store.collection<GoogleMessage>("google.messages", ["gmail_id", "thread_id", "user_email"]),
     drafts: store.collection<GoogleDraft>("google.drafts", ["gmail_id", "message_gmail_id", "user_email"]),
