@@ -166,10 +166,9 @@ function senderOf(request: Request): Sender {
   }
 }
 
-/** Answers one request for an emulator URL from the emulator running in this worker. A navigation from outside this site may read, never change. */
+/** Answers one request for an emulator URL from the emulator running in this worker. A navigation from outside this site is refused whatever its method, because some emulator GET routes change state. */
 async function answer(request: Request, url: URL): Promise<Response> {
-  const reads = request.method === "GET" || request.method === "HEAD";
-  if (!reads && senderOf(request) === "outside-navigation") {
+  if (senderOf(request) === "outside-navigation") {
     return new Response("Only the playground can send this request.", {
       status: 403,
       headers: { "Content-Type": "text/plain; charset=utf-8" },

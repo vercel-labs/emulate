@@ -272,7 +272,7 @@ export function FileSharing() {
                 data-share-link
                 href={details.url}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener"
                 className={`${secondaryButtonClass} self-start`}
               >
                 Open the share link
