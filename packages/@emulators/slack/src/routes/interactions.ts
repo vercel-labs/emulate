@@ -368,11 +368,16 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
       };
       if (inChannel) {
         const inserted = ss().messages.insert(message);
-        if (parent)
-          ss().messages.update(parent.id, {
-            reply_count: parent.reply_count + 1,
-            reply_users: [...new Set([...parent.reply_users, response.bot_user_id])],
-          });
+        if (message.thread_ts) {
+          const parent = ss()
+            .messages.findBy("channel_id", response.channel_id)
+            .find((item) => item.ts === message.thread_ts);
+          if (parent)
+            ss().messages.update(parent.id, {
+              reply_count: parent.reply_count + 1,
+              reply_users: [...new Set([...parent.reply_users, response.bot_user_id])],
+            });
+        }
         await messageEvent(channel.team_id, {
           ...formatSlackMessage(inserted),
           type: "message",

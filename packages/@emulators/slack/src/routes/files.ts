@@ -288,7 +288,7 @@ export function filesRoutes(ctx: RouteContext): void {
           reactions: [],
         });
 
-        updateParentThread(parent, authUserId);
+        updateParentThread(channel.channel_id, threadTs, authUserId);
 
         const messageFiles: SlackFile[] = [];
         for (const file of updatedFiles) {
@@ -436,7 +436,11 @@ export function filesRoutes(ctx: RouteContext): void {
     }
   }
 
-  function updateParentThread(parent: SlackMessage | undefined, userId: string) {
+  function updateParentThread(channelId: string, threadTs: string | undefined, userId: string) {
+    if (!threadTs) return;
+    const parent = ss()
+      .messages.all()
+      .find((message) => message.channel_id === channelId && message.ts === threadTs);
     if (!parent) return;
 
     const replyUsers = parent.reply_users.includes(userId) ? parent.reply_users : [...parent.reply_users, userId];

@@ -210,14 +210,19 @@ export function chatRoutes(ctx: RouteContext): void {
     });
 
     // Update parent thread reply count
-    if (parent) {
-      const replyUsers = parent.reply_users.includes(authUserId)
-        ? parent.reply_users
-        : [...parent.reply_users, authUserId];
-      ss().messages.update(parent.id, {
-        reply_count: parent.reply_count + 1,
-        reply_users: replyUsers,
-      });
+    if (thread_ts) {
+      const parent = ss()
+        .messages.all()
+        .find((m) => m.ts === thread_ts && m.channel_id === ch.channel_id);
+      if (parent) {
+        const replyUsers = parent.reply_users.includes(authUserId)
+          ? parent.reply_users
+          : [...parent.reply_users, authUserId];
+        ss().messages.update(parent.id, {
+          reply_count: parent.reply_count + 1,
+          reply_users: replyUsers,
+        });
+      }
     }
 
     await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch.team_id), {
