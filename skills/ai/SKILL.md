@@ -105,7 +105,17 @@ const gateway = createOpenAICompatible({
 
 `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check. Set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule.
 
-The private `@ai-sdk/gateway` protocol is not supported. Use an OpenAI-compatible provider instead.
+Code that passes plain model strings goes through `@ai-sdk/gateway`, whose protocol the emulator serves for text, images, speech, transcription, video, and decisions. Point the AI SDK's default provider at it:
+
+```typescript
+import { createGateway, generateText } from "ai";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: "http://localhost:4014/v4/ai", apiKey: "test" });
+
+await generateText({ model: "anthropic/claude-sonnet-5", prompt: "Hi" });
+```
+
+Gateway routes match `format: gateway`, and errors come back in the gateway envelope that the client turns into typed errors such as `GatewayRateLimitError`.
 
 An unsupported data path such as `/v1/embeddings` returns a native 404 naming the supported data paths.
 
@@ -183,27 +193,33 @@ services:
 
 ### Matchers
 
-| Key             | Matches                                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `model`         | Model id, with `*` wildcards                                                                                         |
-| `format`        | `openai-chat`, `openai-responses`, or `anthropic-messages`                                                           |
-| `stream`        | Boolean                                                                                                              |
-| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                           |
-| `tool`          | A declared tool name, with `*` wildcards                                                                             |
-| `hasToolResult` | Whether the current continuation carries a tool result                                                               |
-| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*` |
+| Key             | Matches                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | `text` (default), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task                                                                                                                                                                                  |
+| `model`         | Model id, with `*` wildcards                                                                                                                                                                                                                                                                            |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, `perplexity-decisions`, or `gateway` |
+| `stream`        | Boolean                                                                                                                                                                                                                                                                                                 |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                                                                                                                                                              |
+| `tool`          | A declared tool name, with `*` wildcards                                                                                                                                                                                                                                                                |
+| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                                                                                                                                                                  |
+| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                                                                                                                                                    |
 
 ### Replies
 
 A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 
-| Event     | Shape                                  | Notes                                                                                                  |
-| --------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Text      | `{ type: text, text }`                 | Normal assistant text                                                                                  |
-| Object    | `{ type: object, value }`              | Sent as JSON text, for structured output                                                               |
-| Tool call | `{ type: tool_call, name, arguments }` | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
-| Reasoning | `{ type: reasoning, text }`            | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
-| Refusal   | `{ type: refusal, text }`              | Native refusal shape                                                                                   |
+| Event       | Shape                                          | Notes                                                                                                  |
+| ----------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Text        | `{ type: text, text }`                         | Normal assistant text                                                                                  |
+| Object      | `{ type: object, value }`                      | Sent as JSON text, for structured output                                                               |
+| Tool call   | `{ type: tool_call, name, arguments }`         | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
+| Reasoning   | `{ type: reasoning, text }`                    | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
+| Refusal     | `{ type: refusal, text }`                      | Native refusal shape                                                                                   |
+| Image       | `{ type: image, data?, revisedPrompt? }`       | `task: image` rules only; `data` is base64 file bytes, and without it the emulator renders the image   |
+| Audio       | `{ type: audio, data? }`                       | `task: speech` rules only; `data` is base64 file bytes, and without it the emulator renders silence    |
+| Video       | `{ type: video, data?, polls? }`               | `task: video` rules only; completes the job after `polls` status reads (default 1)                     |
+| Video error | `{ type: video_error, code, message, polls? }` | `task: video` rules only; fails the job after `polls` status reads                                     |
+| Decision    | `{ type: decision, answers }`                  | `task: decision` rules only; answers keyed by question id, `null` for a refusal                        |
 
 With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
@@ -477,6 +493,135 @@ Use `stream: true` in the matcher and add a fault. A disconnect ends the client 
     stallMs: 30000
 ```
 
+### Gemini
+
+`POST /v1beta/models/{model}:generateContent` and `:streamGenerateContent` serve `@google/genai` and `@ai-sdk/google`. Text, streaming, function calls, structured output, and thoughts use the same rules as the OpenAI routes; match `format: gemini` to target them. `responseModalities: ["TEXT", "IMAGE"]` answers with PNG `inlineData` (image rules may include `text` events), and `["AUDIO"]` answers with 24 kHz L16 speech.
+
+```typescript
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: "test", httpOptions: { baseUrl: "http://localhost:4014" } });
+const response = await ai.models.generateContent({ model: "gemini-3-flash", contents: "Hello" });
+```
+
+With the AI SDK, use `createGoogleGenerativeAI({ baseURL: "http://localhost:4014/v1beta", apiKey: "test" })`.
+
+### Images
+
+`POST /v1/images/generations` and `POST /v1/images/edits` serve the OpenAI Images API and xAI's compatible image endpoints, so `openai.images.generate`, `openai.images.edit`, and AI SDK `generateImage` with `@ai-sdk/openai` or `@ai-sdk/xai` work offline. Images are real files in the requested `output_format` and `size`; unmatched requests render a solid color derived from the prompt, inputs, and position.
+
+```typescript
+import OpenAI from "openai";
+
+const openai = new OpenAI({ baseURL: "http://localhost:4014/v1", apiKey: "test" });
+const result = await openai.images.generate({ model: "gpt-image-2", prompt: "a fox", size: "1536x1024", n: 2 });
+```
+
+Script exact bytes or failures with `task: image` rules:
+
+```yaml
+ai:
+  rules:
+    - id: logo
+      match: { task: image, textContains: logo }
+      reply:
+        - type: image
+          data: iVBORw0KGgo... # base64, returned verbatim
+    - id: image-quota
+      match: { task: image }
+      times: 1
+      error: { status: 429, message: Image quota exceeded. }
+```
+
+### Audio
+
+OpenAI speech (`POST /v1/audio/speech`), transcription, and translation, ElevenLabs text to speech and speech to text, and Chat Completions audio output all work offline. Speech returns real silence in the requested format, sized to the input; transcripts default to `This is a deterministic transcript of <file name>.` with word timings spread across the audio. `@ai-sdk/elevenlabs` has no base URL option, so route it through a custom `fetch`:
+
+```typescript
+import { generateSpeech, transcribe } from "ai";
+import { createElevenLabs } from "@ai-sdk/elevenlabs";
+
+const elevenlabs = createElevenLabs({
+  apiKey: "test",
+  fetch: (url, init) => fetch(String(url).replace("https://api.elevenlabs.io", "http://localhost:4014"), init),
+});
+const { audio } = await generateSpeech({ model: elevenlabs.speech("eleven_multilingual_v2"), text: "Hello" });
+```
+
+Script exact audio and transcripts:
+
+```yaml
+ai:
+  rules:
+    - id: greeting
+      match: { task: speech, textContains: welcome }
+      reply: [{ type: audio, data: UklGRiQAAABXQVZF... }]
+    - id: call-notes
+      match: { task: transcription }
+      reply: [{ type: text, text: Customer asked about the refund. }]
+```
+
+### Video
+
+OpenAI video jobs, xAI video generation, and Veo on the Gemini API and Vertex AI are served as jobs with an explicit state machine (`queued`, `in_progress`, `completed` or `failed`). Each status read advances a job one step; by default the first read reports `in_progress` and the second completes it with a real H.264 MP4 at the requested size and duration. The AI SDK refuses `localhost` downloads, so pass `download` to `experimental_generateVideo` for xAI and Gemini API Veo:
+
+```typescript
+import { experimental_generateVideo as generateVideo } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+
+const google = createGoogleGenerativeAI({ baseURL: "http://localhost:4014/v1beta", apiKey: "test" });
+const { video } = await generateVideo({
+  model: google.video("veo-3.1-generate-preview"),
+  prompt: "waves at sunset",
+  poll: { intervalMs: 10 },
+  download: async ({ url }) => {
+    const response = await fetch(url);
+    return { data: new Uint8Array(await response.arrayBuffer()), mediaType: "video/mp4" };
+  },
+});
+```
+
+Script slow or failing jobs:
+
+```yaml
+ai:
+  rules:
+    - id: blocked
+      match: { task: video, textContains: violence }
+      reply: [{ type: video_error, code: moderation_blocked, message: Blocked., polls: 2 }]
+    - id: slow
+      match: { task: video }
+      reply: [{ type: video, polls: 5 }]
+```
+
+### Decisions
+
+Decision models answer typed questions with probabilities. `openai.decisions.create`, `@google/genai` `ai.decisions.create`, the TypeSafe SDK's `systemOne`, OpenRouter `alpha.decisions.create`, Perplexity's `/v1/decisions`, and AI SDK `experimental_decide` with `@ai-sdk/openai`, `@ai-sdk/google`, or `@ai-sdk/perplexity` all work offline. Point the TypeSafe SDK at the emulator with `baseURL`, and pass `serverURL` per call to the OpenRouter SDK's decisions method, which ignores the client-level `serverURL`.
+
+```typescript
+import { experimental_decide as decide } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+
+const openai = createOpenAI({ baseURL: "http://localhost:4014/v1", apiKey: "test" });
+const { answers } = await decide({
+  model: openai.decisionModel("gpt-6-luna"),
+  state: "My order arrived broken.",
+  questions: { damaged: { type: "boolean", instructions: "Is the item damaged?" } },
+});
+```
+
+Script answers by question id:
+
+```yaml
+ai:
+  rules:
+    - id: triage
+      match: { task: decision }
+      reply:
+        - type: decision
+          answers: { damaged: 0.97, team: billing, urgency: 2 }
+```
+
 ### Strict mode
 
 Set `ai.strict: true` to fail unmatched requests with a native 400. The message names the request's model and tools and includes the missing rule as YAML for a seed file and as a JSON body for `PUT /_ai/rules`. The JSON body keeps strict mode on, but `PUT /_ai/rules` replaces the whole configuration. Read the current rules with `GET /_ai/rules`, add the missing rule to them, send the result back, and retry. Replace the placeholder reply text first: it becomes the live reply if you send it unchanged.
@@ -515,8 +660,7 @@ On the OpenAI routes, result-changing features outside this version return a nat
 - background mode
 - the Conversations API
 - multiple candidates (`n` above 1)
-- audio input
-- audio output
+- audio input and output on Responses
 - legacy functions
 
 On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`. Messages errors use Anthropic's envelope, and a validation error starts with the failing field, as in `max_tokens: Expected a number.` Unsupported paths under `/v1/messages`, such as `count_tokens`, and any request with an `anthropic-version` header get a `not_found_error` in the same envelope.
@@ -537,7 +681,7 @@ Open `http://localhost:4014/` to browse calls and rule budgets in the inspector.
 
 ## Current Limits
 
-Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: the Gemini Interactions API, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 

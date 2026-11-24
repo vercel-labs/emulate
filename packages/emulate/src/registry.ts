@@ -639,9 +639,9 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
 
   ai: {
-    label: "AI provider emulator for OpenAI Responses, Chat Completions, and Anthropic Messages",
+    label: "AI provider emulator for OpenAI, Anthropic, Gemini, and media, video, and decision APIs",
     endpoints:
-      "OpenAI Responses, Chat Completions, Anthropic Messages, models list, stored responses, call record, live rules, reset, inspector",
+      "OpenAI Responses, Chat Completions, Anthropic Messages, Gemini generateContent, OpenAI and xAI images, OpenAI and ElevenLabs audio, OpenAI, xAI, and Veo video jobs, decision models, models list, stored responses, call record, live rules, reset, inspector",
     async load() {
       const mod = await import("@emulators/ai");
       return { plugin: mod.aiPlugin, seedFromConfig: mod.seedFromConfig };

@@ -4,6 +4,7 @@ import type {
   AIRequest,
   AiConfig,
   AiFormat,
+  AiTask,
   FilePart,
   FinishReason,
   HttpFailure,
@@ -35,15 +36,50 @@ const CONFIG_KEYS = new Set(["port", "baseUrl", "strict", "timing", "random", "m
 const RANDOM_KEYS = new Set(["seed"]);
 const VARIANT_KEYS = new Set(["reply", "error", "finish", "timing", "fault"]);
 const TIMING_KEYS = new Set(["ttftMs", "chunkDelayMs"]);
-const MATCH_KEYS = new Set(["model", "format", "stream", "textContains", "tool", "hasToolResult", "file"]);
+const MATCH_KEYS = new Set(["task", "model", "format", "stream", "textContains", "tool", "hasToolResult", "file"]);
 const RULE_KEYS = new Set(["id", "match", "times", "reply", "variants", "finish", "error", "fault", "timing"]);
 const ERROR_KEYS = new Set(["status", "message", "type", "code", "param", "headers"]);
 const FAULT_KEYS = new Set(["afterChunks", "kind", "stallMs"]);
 const TEXT_EVENT_KEYS = new Set(["type", "text"]);
 const OBJECT_EVENT_KEYS = new Set(["type", "value"]);
 const TOOL_CALL_EVENT_KEYS = new Set(["type", "name", "arguments", "id"]);
+const IMAGE_EVENT_KEYS = new Set(["type", "data", "revisedPrompt"]);
+const AUDIO_EVENT_KEYS = new Set(["type", "data"]);
+const VIDEO_EVENT_KEYS = new Set(["type", "data", "polls"]);
+const VIDEO_ERROR_EVENT_KEYS = new Set(["type", "code", "message", "polls"]);
+const MAX_POLLS = 1000;
+const DECISION_EVENT_KEYS = new Set(["type", "answers"]);
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
-const FORMATS: ReadonlySet<string> = new Set(["openai-chat", "openai-responses", "anthropic-messages"]);
+const FORMATS: ReadonlySet<string> = new Set([
+  "openai-chat",
+  "openai-responses",
+  "anthropic-messages",
+  "openai-images",
+  "openai-audio",
+  "elevenlabs",
+  "openai-videos",
+  "xai-videos",
+  "gemini-veo",
+  "vertex-veo",
+  "openai-decisions",
+  "gemini-decisions",
+  "typesafe-systemone",
+  "openrouter-decisions",
+  "perplexity-decisions",
+  "gemini",
+  "gateway",
+]);
+
+/** The reply event types each task can render. */
+const TASK_EVENTS: Record<AiTask, ReadonlySet<string>> = {
+  text: new Set(["reasoning", "text", "object", "tool_call", "refusal"]),
+  image: new Set(["image", "text"]),
+  speech: new Set(["audio"]),
+  transcription: new Set(["text"]),
+  video: new Set(["video", "video_error"]),
+  decision: new Set(["decision"]),
+};
 const FINISH_REASONS: ReadonlySet<string> = new Set(["stop", "tool_calls", "length", "refusal", "content_filter"]);
 const FAULT_KINDS: ReadonlySet<string> = new Set(["disconnect", "stall"]);
 
@@ -102,7 +138,7 @@ export function initialBudgets(config: AiConfig): RuleBudgets {
 /** Pick the first rule whose conditions hold and whose budget is not used up, consuming one use atomically. */
 export function matchRule(config: AiConfig, budgets: RuleBudgets, request: AIRequest): RuleMatchResult {
   const exhausted: string[] = [];
-  const turn = currentTurn(request);
+  const turn = request.task === undefined || request.task === "text" ? currentTurn(request) : mediaTurn(request);
   for (const rule of config.rules) {
     if (!matches(rule.match, request, turn)) continue;
     const remaining = budgetOf(rule, budgets);
@@ -152,6 +188,7 @@ export function rulesView(config: AiConfig, budgets: RuleBudgets): RuleView[] {
 }
 
 function matches(match: RuleMatch, request: AIRequest, turn: Turn): boolean {
+  if ((match.task ?? "text") !== (request.task ?? "text")) return false;
   if (match.format !== undefined && match.format !== request.format) return false;
   if (match.stream !== undefined && match.stream !== request.stream) return false;
   if (match.model !== undefined && !globMatch(match.model, request.model)) return false;
@@ -161,6 +198,16 @@ function matches(match: RuleMatch, request: AIRequest, turn: Turn): boolean {
   if (match.hasToolResult !== undefined && turn.toolResults.length > 0 !== match.hasToolResult) return false;
   if (match.file !== undefined && !matchesFiles(match.file, turn.files)) return false;
   return true;
+}
+
+/** The turn of a media request: its prompt text and attachments, with no tools to resolve. */
+function mediaTurn(request: AIRequest): Turn {
+  const parts = request.messages.flatMap((message) => message.parts);
+  return {
+    text: parts.map((part) => (part.type === "text" ? part.text : "")).join(""),
+    files: parts.filter((part): part is FilePart => part.type === "file"),
+    toolResults: [],
+  };
 }
 
 function budgetOf(rule: Rule, budgets: RuleBudgets): number | null {
@@ -290,6 +337,7 @@ function parseRule(raw: unknown, path: string): Rule {
     rule.error = parseError(obj.error, `${path}.error`);
   }
   const scripted = hasReply || hasVariants;
+  assertTaskEvents(rule, path);
 
   if (obj.finish !== undefined) {
     if (!scripted) throw new AiConfigError("finish does not apply to an error rule", `${path}.finish`);
@@ -312,11 +360,37 @@ function parseRule(raw: unknown, path: string): Rule {
   return rule;
 }
 
+/** Rejects reply events the rule's task cannot render, naming the task and the event's path. */
+function assertTaskEvents(rule: Rule, path: string): void {
+  const task = rule.match.task ?? "text";
+  const allowed = TASK_EVENTS[task];
+  const check = (events: RuleReplyEvent[] | undefined, at: string) =>
+    events?.forEach((event, index) => {
+      if (!allowed.has(event.type)) {
+        throw new AiConfigError(
+          `${task} rules cannot reply with "${event.type}"; expected ${[...allowed].join(", ")}`,
+          `${at}[${index}].type`,
+        );
+      }
+    });
+  check(rule.reply, `${path}.reply`);
+  rule.variants?.forEach((variant, index) => check(variant.reply, `${path}.variants[${index}].reply`));
+}
+
+function parseTask(value: unknown, path: string): AiTask {
+  const task = expectString(value, path, true);
+  if (!Object.hasOwn(TASK_EVENTS, task)) {
+    throw new AiConfigError(`expected one of ${Object.keys(TASK_EVENTS).join(", ")}`, path);
+  }
+  return task as AiTask;
+}
+
 function parseMatch(raw: unknown, path: string): RuleMatch {
   const obj = expectRecord(raw, path);
   assertKnownKeys(obj, MATCH_KEYS, path);
   const match: RuleMatch = {};
 
+  if (obj.task !== undefined) match.task = parseTask(obj.task, `${path}.task`);
   if (obj.model !== undefined) match.model = expectString(obj.model, `${path}.model`, true);
   if (obj.format !== undefined) match.format = parseFormat(obj.format, `${path}.format`);
   if (obj.stream !== undefined) match.stream = expectBoolean(obj.stream, `${path}.stream`);
@@ -339,7 +413,7 @@ function parseFileMatch(value: unknown, path: string): boolean | string {
 function parseFormat(value: unknown, path: string): AiFormat {
   const format = expectString(value, path, true);
   if (!FORMATS.has(format)) {
-    throw new AiConfigError('expected "openai-chat", "openai-responses", or "anthropic-messages"', path);
+    throw new AiConfigError(`expected one of ${[...FORMATS].map((name) => `"${name}"`).join(", ")}`, path);
   }
   return format as AiFormat;
 }
@@ -392,6 +466,40 @@ function parseReplyEvent(raw: unknown, path: string): RuleReplyEvent {
         arguments: args,
         ...(obj.id === undefined ? {} : { id: expectString(obj.id, `${path}.id`, true) }),
       };
+    }
+    case "image":
+      assertKnownKeys(obj, IMAGE_EVENT_KEYS, path);
+      return {
+        type,
+        ...(obj.data === undefined ? {} : { data: expectBase64(obj.data, `${path}.data`) }),
+        ...(obj.revisedPrompt === undefined
+          ? {}
+          : { revisedPrompt: expectString(obj.revisedPrompt, `${path}.revisedPrompt`) }),
+      };
+    case "audio":
+      assertKnownKeys(obj, AUDIO_EVENT_KEYS, path);
+      return { type, ...(obj.data === undefined ? {} : { data: expectBase64(obj.data, `${path}.data`) }) };
+    case "video":
+      assertKnownKeys(obj, VIDEO_EVENT_KEYS, path);
+      return {
+        type,
+        ...(obj.data === undefined ? {} : { data: expectBase64(obj.data, `${path}.data`) }),
+        ...(obj.polls === undefined ? {} : { polls: expectPolls(obj.polls, `${path}.polls`) }),
+      };
+    case "video_error":
+      assertKnownKeys(obj, VIDEO_ERROR_EVENT_KEYS, path);
+      return {
+        type,
+        code: expectString(obj.code, `${path}.code`, true),
+        message: expectString(obj.message, `${path}.message`),
+        ...(obj.polls === undefined ? {} : { polls: expectPolls(obj.polls, `${path}.polls`) }),
+      };
+    case "decision": {
+      assertKnownKeys(obj, DECISION_EVENT_KEYS, path);
+      const answers = expectJson(obj.answers ?? {}, `${path}.answers`);
+      if (!isRecord(answers))
+        throw new AiConfigError("expected an object of answers keyed by question", `${path}.answers`);
+      return { type, answers: answers as Record<string, Json> };
     }
     default:
       throw new AiConfigError(`unknown reply event type "${type}"`, `${path}.type`);
@@ -484,6 +592,18 @@ function expectString(value: unknown, path: string, nonEmpty = false): string {
   if (typeof value !== "string") throw new AiConfigError("expected a string", path);
   if (nonEmpty && value.length === 0) throw new AiConfigError("expected a non-empty string", path);
   return value;
+}
+
+function expectBase64(value: unknown, path: string): string {
+  const data = expectString(value, path, true);
+  if (!BASE64.test(data)) throw new AiConfigError("expected base64 file bytes", path);
+  return data;
+}
+
+function expectPolls(value: unknown, path: string): number {
+  const polls = expectSafeInteger(value, path, 0);
+  if (polls > MAX_POLLS) throw new AiConfigError(`expected at most ${MAX_POLLS} polls`, path);
+  return polls;
 }
 
 function expectBoolean(value: unknown, path: string): boolean {

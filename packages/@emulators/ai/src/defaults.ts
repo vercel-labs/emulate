@@ -8,6 +8,7 @@ import type {
   Json,
   JsonSchema,
   ReplyEvent,
+  RuleReplyEvent,
   ToolDefinition,
   Usage,
 } from "./types.js";
@@ -39,6 +40,7 @@ const keywords = new Set([
   "minItems",
   "maxItems",
   "nullable",
+  "propertyOrdering",
   "anyOf",
   "oneOf",
   "format",
@@ -710,27 +712,34 @@ export function strictMissFailure(
   request: AIRequest,
   exhaustedRuleIds: string[],
   ruleIds: readonly string[],
+  sample: RuleReplyEvent = { type: "text", text: "Replace with your expected reply." },
 ): HttpFailure {
   let id = "matching-reply";
   for (let suffix = 2; ruleIds.includes(id); suffix++) id = `matching-reply-${suffix}`;
-  const match = { model: request.model, format: request.format };
-  const rule = { id, match, reply: [{ type: "text", text: "Replace with your expected reply." }] };
+  const task = request.task !== undefined && request.task !== "text" ? request.task : undefined;
+  const match = { ...(task ? { task } : {}), model: request.model, format: request.format };
+  const rule = { id, match, reply: [sample] };
   const yaml = [
     "ai:",
     "  rules:",
     `    - id: ${rule.id}`,
     "      match:",
+    ...(task ? [`        task: ${task}`] : []),
     `        model: ${JSON.stringify(request.model)}`,
     `        format: ${request.format}`,
     "      reply:",
-    "        - type: text",
-    `          text: ${JSON.stringify(rule.reply[0].text)}`,
+    ...Object.entries(sample).map(
+      ([key, value], index) =>
+        `${index === 0 ? "        - " : "          "}${key}: ${key === "type" ? value : JSON.stringify(value)}`,
+    ),
   ].join("\n");
   return {
     status: 400,
     type: "invalid_request_error",
     message: [
-      `No AI rule matched model ${JSON.stringify(request.model)} with tools ${JSON.stringify(request.tools.map((tool) => tool.name))}.`,
+      task
+        ? `No AI rule matched the ${task} request for model ${JSON.stringify(request.model)}.`
+        : `No AI rule matched model ${JSON.stringify(request.model)} with tools ${JSON.stringify(request.tools.map((tool) => tool.name))}.`,
       ...(exhaustedRuleIds.length
         ? [`Exhausted matching rules: ${exhaustedRuleIds.map((id) => JSON.stringify(id)).join(", ")}.`]
         : []),

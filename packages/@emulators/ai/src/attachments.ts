@@ -73,6 +73,22 @@ export function redactedUrl(value: unknown, path: string): string {
   return stripUrl(url);
 }
 
+/**
+ * Strips credentials, query, and hash from a URL reference of any scheme, such as `https:` or `gs:`. A `data:` URL
+ * carries the file itself rather than a reference to it, so it is rejected instead of being recorded.
+ */
+export function redactedReference(value: unknown, path: string): string {
+  if (typeof value !== "string") fail("Expected a URL.", path);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return fail("Expected a URL.", path);
+  }
+  if (url.protocol === "data:") fail("Expected a URL reference, not inline data.", path);
+  return stripUrl(url);
+}
+
 function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
   if (value.length > Math.ceil(maxBytes / 3) * 4 + 2) fail("Inline attachment exceeds the size limit.", path);
   if (value.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
@@ -195,7 +211,16 @@ export function urlAttachment(ref: string, kind: "image" | "file"): FilePart {
   };
 }
 
-function imageAttachment(value: unknown, path: string): FilePart {
+/** Decodes media given as a base64 data URL or a URL of any scheme; a URL is kept without credentials, query, or hash. */
+export function mediaAttachment(value: unknown, mediaType: string, path: string): FilePart {
+  if (typeof value === "string" && value.startsWith("data:")) {
+    return inlineAttachment(value, undefined, path, MAX_OPENAI_FILE_BYTES, false);
+  }
+  return { type: "file", mediaType, source: "url", ref: redactedReference(value, path) };
+}
+
+/** Decodes an image given as an HTTPS URL or a base64 data URL into attachment metadata. */
+export function imageAttachment(value: unknown, path: string): FilePart {
   if (typeof value !== "string") fail("Expected an image URL.", path);
   if (value.startsWith("data:")) {
     const result = inlineAttachment(value, undefined, path, MAX_OPENAI_IMAGE_BYTES, false);
