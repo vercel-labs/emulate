@@ -2,6 +2,7 @@ import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
 import { dispatchSlackEvent } from "../events.js";
 import {
+  findSlackThreadParent,
   formatSlackMessage,
   generateTs,
   hasSlackMessageContent,
@@ -81,6 +82,7 @@ export function webhookRoutes(ctx: RouteContext): void {
 
     const ts = generateTs();
     const botId = c.req.param("botId");
+    const parent = findSlackThreadParent(store, targetChannel.channel_id, threadTs, ts);
 
     const msg = ss().messages.insert({
       ts,
@@ -90,6 +92,7 @@ export function webhookRoutes(ctx: RouteContext): void {
       type: "message" as const,
       subtype: "bot_message",
       thread_ts: threadTs,
+      ...(parent?.user ? { parent_user_id: parent.user } : {}),
       ...richMessage.fields,
       ...slackBotMessageFields(store, botId, targetChannel.team_id),
       reply_count: 0,

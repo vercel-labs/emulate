@@ -218,6 +218,18 @@ export function slackBotMessageFields(
   };
 }
 
+export function findSlackThreadParent(
+  store: Store,
+  channelId: string,
+  threadTs: string | undefined,
+  ts?: string,
+): SlackMessage | undefined {
+  if (!threadTs || threadTs === ts) return undefined;
+  return getSlackStore(store)
+    .messages.all()
+    .find((m) => m.ts === threadTs && m.channel_id === channelId);
+}
+
 export function formatSlackMessage(msg: SlackMessage) {
   return {
     type: msg.type,
@@ -249,6 +261,7 @@ export function formatSlackMessage(msg: SlackMessage) {
     ...(msg.reply_broadcast !== undefined ? { reply_broadcast: msg.reply_broadcast } : {}),
     ...(msg.edited ? { edited: msg.edited } : {}),
     ...(msg.thread_ts ? { thread_ts: msg.thread_ts } : {}),
+    ...(msg.parent_user_id ? { parent_user_id: msg.parent_user_id } : {}),
     ...(msg.reply_count > 0 ? { reply_count: msg.reply_count, reply_users: msg.reply_users } : {}),
     ...(msg.reactions.length > 0 ? { reactions: msg.reactions } : {}),
   };
@@ -319,6 +332,7 @@ export function formatSlackScheduledMessage(msg: SlackScheduledMessage) {
     ...(msg.unfurl_media !== undefined ? { unfurl_media: msg.unfurl_media } : {}),
     ...(msg.reply_broadcast !== undefined ? { reply_broadcast: msg.reply_broadcast } : {}),
     ...(msg.thread_ts ? { thread_ts: msg.thread_ts } : {}),
+    ...(msg.parent_user_id ? { parent_user_id: msg.parent_user_id } : {}),
   };
 }
 

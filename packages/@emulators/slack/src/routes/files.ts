@@ -11,6 +11,7 @@ import type {
 } from "../entities.js";
 import { getSlackStore } from "../store.js";
 import {
+  findSlackThreadParent,
   formatSlackFile,
   formatSlackMessage,
   generateSlackId,
@@ -268,14 +269,17 @@ export function filesRoutes(ctx: RouteContext): void {
     async function shareFiles(channels: SlackChannel[], files: SlackFile[]) {
       const updatedFiles = [...files];
       for (const channel of channels) {
+        const ts = generateTs();
+        const parent = findSlackThreadParent(store, channel.channel_id, threadTs, ts);
         const msg = ss().messages.insert({
-          ts: generateTs(),
+          ts,
           channel_id: channel.channel_id,
           user: authUserId,
           text: initialComment,
           type: "message" as const,
           subtype: "file_share",
           thread_ts: threadTs,
+          ...(parent?.user ? { parent_user_id: parent.user } : {}),
           blocks,
           files: updatedFiles,
           upload: true,
@@ -284,7 +288,7 @@ export function filesRoutes(ctx: RouteContext): void {
           reactions: [],
         });
 
-        updateParentThread(channel.channel_id, threadTs, authUserId);
+        updateParentThread(parent, authUserId);
 
         const messageFiles: SlackFile[] = [];
         for (const file of updatedFiles) {
@@ -432,11 +436,7 @@ export function filesRoutes(ctx: RouteContext): void {
     }
   }
 
-  function updateParentThread(channelId: string, threadTs: string | undefined, userId: string) {
-    if (!threadTs) return;
-    const parent = ss()
-      .messages.all()
-      .find((message) => message.channel_id === channelId && message.ts === threadTs);
+  function updateParentThread(parent: SlackMessage | undefined, userId: string) {
     if (!parent) return;
 
     const replyUsers = parent.reply_users.includes(userId) ? parent.reply_users : [...parent.reply_users, userId];
