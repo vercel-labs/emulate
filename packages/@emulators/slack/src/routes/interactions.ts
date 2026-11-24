@@ -363,7 +363,7 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
         reply_count: 0,
         reply_users: [],
         reactions: [],
-        ...(threadTs ? { thread_ts: threadTs } : {}),
+        ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
         ...(parent?.user ? { parent_user_id: parent.user } : {}),
       };
       if (inChannel) {
