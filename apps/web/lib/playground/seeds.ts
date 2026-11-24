@@ -37,6 +37,11 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         match: { textContains: "hello" },
         reply: [{ type: "text", text: "Hello from the emulator." }],
       },
+      {
+        id: "refund-triage",
+        match: { task: "decision", textContains: "charged twice" },
+        reply: [{ type: "decision", answers: { team: "billing", refund: 0.9, urgency: 2 } }],
+      },
     ],
   },
   apple: {
