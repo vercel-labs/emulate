@@ -65,6 +65,10 @@ Google authentication is permissive by default for local bearer-token workflows.
 - `DELETE /gmail/v1/users/:userId/settings/filters/:id` - delete filter
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses` - list forwarding addresses
 - `GET /gmail/v1/users/:userId/settings/sendAs` - list send-as aliases
+- `POST /gmail/v1/users/:userId/settings/sendAs` - create a send-as alias (accepted at once unless `verificationStatus` is `pending`)
+- `DELETE /gmail/v1/users/:userId/settings/sendAs/:sendAsEmail` - delete a send-as alias
+
+Seed extra send-as aliases with `send_as` (`send_as_email`, optional `display_name`, `signature`, `is_default`, and `verification_status` of `accepted` or `pending`). Like Gmail, sent messages and drafts keep a From header naming a verified send-as address; any other From, or none, becomes the default send-as address.
 
 ## Calendar
 
