@@ -5,6 +5,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  callbackRegistrationError,
   matchesRedirectUri,
   constantTimeSecretEqual,
   bodyStr,
@@ -115,6 +116,9 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const userScope = bodyStr(body.user_scope);
     const state = bodyStr(body.state);
     const client_id = bodyStr(body.client_id);
+
+    const rejection = callbackRegistrationError(client_id, redirect_uri, ss().oauthApps.all());
+    if (rejection) return c.html(renderErrorPage(rejection.title, rejection.message, SERVICE_LABEL), 400);
 
     const code = randomBytes(20).toString("hex");
 

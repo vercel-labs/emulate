@@ -8,6 +8,7 @@ import {
   renderErrorPage,
   renderFormPostPage,
   renderUserButton,
+  callbackRegistrationError,
   matchesRedirectUri,
   bodyStr,
   debug,
@@ -230,6 +231,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const client_id = bodyStr(body.client_id);
     const nonce = bodyStr(body.nonce);
     const response_mode = bodyStr(body.response_mode) || "query";
+
+    const rejection = callbackRegistrationError(client_id, redirect_uri, as.oauthClients.all());
+    if (rejection) return c.html(renderErrorPage(rejection.title, rejection.message, SERVICE_LABEL), 400);
 
     const code = randomBytes(20).toString("hex");
 

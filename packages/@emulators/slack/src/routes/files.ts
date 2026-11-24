@@ -392,13 +392,11 @@ export function filesRoutes(ctx: RouteContext): void {
     if (!canAccessFile(file, authUser)) return c.text("file_not_found", 404);
 
     const data = Buffer.from(file.content_base64 ?? "", "base64");
-    return new Response(data, {
-      status: 200,
-      headers: {
-        "Content-Type": file.mimetype,
-        ...(c.req.query("download") ? { "Content-Disposition": `attachment; filename="${file.name}"` } : {}),
-      },
-    });
+    return c.file(
+      data,
+      file.mimetype,
+      c.req.query("download") ? { "Content-Disposition": `attachment; filename="${file.name}"` } : undefined,
+    );
   });
 
   app.post("/api/files.delete", async (c) => {

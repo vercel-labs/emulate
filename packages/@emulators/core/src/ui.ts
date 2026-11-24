@@ -413,7 +413,25 @@ ${POWERED_BY}
 </body></html>`;
 }
 
+/** True for an http or https URL. Any other scheme, such as javascript:, runs in the page when used as a link or form action. */
+function isWebUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Renders the page that posts an OAuth form_post response to the client. A target that is not an http or https URL gets an error page instead. */
 export function renderFormPostPage(action: string, fields: Record<string, string>, service?: string): string {
+  if (!isWebUrl(action)) {
+    return renderErrorPage(
+      "Invalid redirect URI",
+      "A form_post response can only be sent to an http or https address.",
+      service,
+    );
+  }
   const hiddens = Object.entries(fields)
     .filter(([, v]) => v != null)
     .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(v)}"/>`)
@@ -490,9 +508,10 @@ export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string):
   </div>
 </div>`;
 
-  const cancelHtml = opts.cancelUrl
-    ? `<div class="checkout-cancel"><a href="${escapeAttr(opts.cancelUrl)}">Cancel</a></div>`
-    : "";
+  const cancelHtml =
+    opts.cancelUrl && isWebUrl(opts.cancelUrl)
+      ? `<div class="checkout-cancel"><a href="${escapeAttr(opts.cancelUrl)}">Cancel</a></div>`
+      : "";
 
   const merchant = opts.merchantName ? escapeHtml(opts.merchantName) : "Checkout";
 

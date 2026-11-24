@@ -319,6 +319,43 @@ describe("internal http layer", () => {
     expect(res.headers.get("Content-Type")).toBe("text/plain");
   });
 
+  it("sandboxes uploaded files that render as a page and never lets a file be sniffed", async () => {
+    const app = new Hono();
+    app.get("/page", (c) => c.file("<script>alert(1)</script>", "text/html"));
+    app.get("/image", (c) => c.file("png", "image/png", { ETag: "abc" }));
+    app.get("/untyped", (c) => c.file("?", ""));
+
+    const page = await app.request("/page");
+    expect(page.headers.get("content-type")).toBe("text/html");
+    expect(page.headers.get("content-security-policy")).toBe("sandbox");
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+
+    const image = await app.request("/image");
+    expect(image.headers.get("content-security-policy")).toBeNull();
+    expect(image.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(image.headers.get("etag")).toBe("abc");
+
+    expect((await app.request("/untyped")).headers.get("content-security-policy")).toBe("sandbox");
+  });
+
+  it("sandboxes every XML document type a browser renders, including the ones without xml in the name", async () => {
+    const app = new Hono();
+    const types = [
+      "text/xsl",
+      "text/xslt",
+      "application/xslt+xml",
+      "text/rdf",
+      "application/xhtml+xml",
+      "image/svg+xml",
+    ];
+    types.forEach((type, index) => app.get(`/file/${index}`, (c) => c.file("<x/>", type)));
+
+    for (const [index, type] of types.entries()) {
+      const response = await app.request(`/file/${index}`);
+      expect([type, response.headers.get("content-security-policy")]).toEqual([type, "sandbox"]);
+    }
+  });
+
   it("prefers explicit HEAD routes over GET fallback", async () => {
     const app = new Hono();
     app.get("/object", (c) => c.text("get", 200, { "X-Handler": "get" }));
