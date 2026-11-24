@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { Buffer as NodeBuffer } from "node:buffer";
 import { test } from "node:test";
+import zlib from "node:zlib";
 import { createContext as nodeCreateContext, Script as NodeScript } from "node:vm";
 import { Buffer } from "../lib/emulator-browser/buffer.ts";
 import shimCryptoDefault, * as shimCrypto from "../lib/emulator-browser/crypto.ts";
 import { createContext, Script } from "../lib/emulator-browser/vm.ts";
+import * as shimZlib from "../lib/emulator-browser/zlib.ts";
 
 const hashAlgorithms = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"];
 const hmacAlgorithms = ["md5", "sha1", "sha256", "sha512"];
@@ -112,4 +114,12 @@ test("a vm Script tests a pattern against a value like Node, and refuses any oth
     assert.equal(new Script(code).runInContext(createContext({ ...values })), expected, JSON.stringify(values));
   }
   assert.throws(() => new Script("1 + 1"), /not available in the browser playground/);
+});
+
+test("crc32 and deflateSync match node's zlib for the PNG encoder", () => {
+  for (const data of [new Uint8Array(0), bytes, new Uint8Array(bigBytes)]) {
+    assert.equal(shimZlib.crc32(data), zlib.crc32(data));
+    assert.equal(shimZlib.crc32(data, 0x1234abcd), zlib.crc32(data, 0x1234abcd));
+    assert.deepEqual(new Uint8Array(zlib.inflateSync(shimZlib.deflateSync(data))), data);
+  }
 });

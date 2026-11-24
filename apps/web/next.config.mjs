@@ -16,6 +16,7 @@ const browserShims = {
   stream: "stream",
   url: "url",
   vm: "vm",
+  zlib: "zlib",
 };
 const resolveAlias = Object.fromEntries(
   Object.entries(browserShims).flatMap(([name, file]) => {
