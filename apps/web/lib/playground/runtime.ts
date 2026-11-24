@@ -14,11 +14,24 @@ export interface EmulatorRequest {
   body?: string;
 }
 
+/** A response body as text, or as an object URL for an image, audio, or video the page can play. */
+export type EmulatorBody =
+  | { kind: "text"; text: string }
+  | { kind: "media"; media: "image" | "audio" | "video"; type: string; url: string };
+
 export interface EmulatorResponse {
   status: number;
   statusText: string;
-  body: string;
+  body: EmulatorBody;
   location: string | null;
+}
+
+async function readBody(response: Response): Promise<EmulatorBody> {
+  const type = response.headers.get("Content-Type") ?? "";
+  const media = /^(image|audio|video)\//i.exec(type)?.[1].toLowerCase() as "image" | "audio" | "video" | undefined;
+  return media
+    ? { kind: "media", media, type, url: URL.createObjectURL(await response.blob()) }
+    : { kind: "text", text: await response.text() };
 }
 
 export interface Emulator {
@@ -97,7 +110,7 @@ async function create(name: string): Promise<Emulator> {
       return {
         status: redirect ? Number(redirect) : response.status,
         statusText: redirect ? (response.headers.get("X-Emulate-Status-Text") ?? "") : response.statusText,
-        body: await response.text(),
+        body: await readBody(response),
         location: redirect ? response.headers.get("X-Emulate-Location") : null,
       };
     },

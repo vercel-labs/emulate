@@ -8,7 +8,7 @@ import {
   primaryButtonClass,
   secondaryButtonClass,
 } from "@/components/playground/ui";
-import { getEmulator, resetEmulator } from "@/lib/playground/runtime";
+import { getEmulator, resetEmulator, type EmulatorBody, type EmulatorResponse } from "@/lib/playground/runtime";
 import type { ConsolePreset, ConsoleVariable, PresetGroup } from "@/lib/playground/services";
 
 type Method = ConsolePreset["method"];
@@ -26,7 +26,7 @@ type Outcome =
       status: number;
       statusText: string;
       elapsed: number;
-      body: string;
+      body: EmulatorBody;
       location: string | null;
       kept: string[];
     }
@@ -69,13 +69,10 @@ function fill(text: string, values: Record<string, string>): string {
 const redirectCapture = "@location.";
 
 /** Reads the values a preset keeps from a response: dot paths into the JSON body, or query parameters of a redirect. */
-function capture(
-  response: { body: string; location: string | null },
-  captures: Record<string, string> = {},
-): Record<string, string> {
+function capture(response: EmulatorResponse, captures: Record<string, string> = {}): Record<string, string> {
   let json: unknown;
   try {
-    json = JSON.parse(response.body);
+    json = response.body.kind === "text" ? JSON.parse(response.body.text) : undefined;
   } catch {
     json = undefined;
   }
@@ -99,6 +96,14 @@ function parseHeaders(text: string): Record<string, string> {
     if (colon > 0) headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
   }
   return headers;
+}
+
+/** A textarea keeps only LF line breaks and a multipart body needs CRLF, so a multipart body gets CRLF back before it is sent. */
+function bodyFor(text: string, headers: Record<string, string>): string {
+  const multipart = Object.entries(headers).some(
+    ([name, value]) => name.toLowerCase() === "content-type" && /^multipart\//i.test(value),
+  );
+  return multipart ? text.replace(/\r?\n/g, "\r\n") : text;
 }
 
 function prettify(text: string): string {
@@ -136,6 +141,9 @@ export function EmulatorConsole({
 
   useEffect(() => {
     if (outcome) result.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (outcome?.kind !== "response" || outcome.body.kind !== "media") return;
+    const { url } = outcome.body;
+    return () => URL.revokeObjectURL(url);
   }, [outcome]);
 
   const current = operations[selected];
@@ -190,11 +198,12 @@ export function EmulatorConsole({
       const emulator = await getEmulator(name);
       if (request !== latestRequest.current) return;
       setPhase("sending");
+      const headers = parseHeaders(fill(form.headers, values));
       const response = await emulator.send({
         method: form.method,
         path: fill(form.path, values),
-        headers: parseHeaders(fill(form.headers, values)),
-        body: bodyDisabled ? undefined : fill(form.body, values),
+        headers,
+        body: bodyDisabled ? undefined : bodyFor(fill(form.body, values), headers),
       });
       if (request !== latestRequest.current) return;
       const captured = response.status < 400 ? capture(response, current.preset.captures) : {};
@@ -204,7 +213,7 @@ export function EmulatorConsole({
         status: response.status,
         statusText: response.statusText,
         elapsed: Math.round(now() - started),
-        body: prettify(response.body),
+        body: response.body.kind === "text" ? { kind: "text", text: prettify(response.body.text) } : response.body,
         location: response.location,
         kept: Object.keys(captured).map(labelOf),
       });
@@ -402,12 +411,30 @@ export function EmulatorConsole({
               {outcome.kept.length > 0 && (
                 <p className={hintClass}>Kept {outcome.kept.join(", ")} from this response for later requests.</p>
               )}
-              <pre
-                data-body
-                className="max-h-96 overflow-auto rounded-lg bg-neutral-100 p-4 font-mono text-xs break-all whitespace-pre-wrap text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
-              >
-                {outcome.body}
-              </pre>
+              {outcome.body.kind === "text" && (
+                <pre
+                  data-body
+                  className="max-h-96 overflow-auto rounded-lg bg-neutral-100 p-4 font-mono text-xs break-all whitespace-pre-wrap text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+                >
+                  {outcome.body.text}
+                </pre>
+              )}
+              {outcome.body.kind === "media" && (
+                <div data-body className="flex flex-col gap-2">
+                  <p className={hintClass}>{outcome.body.type}</p>
+                  {outcome.body.media === "image" && (
+                    <img
+                      src={outcome.body.url}
+                      alt="Image returned by the emulator"
+                      className="max-h-96 max-w-full self-start rounded-lg"
+                    />
+                  )}
+                  {outcome.body.media === "audio" && <audio controls src={outcome.body.url} />}
+                  {outcome.body.media === "video" && (
+                    <video controls src={outcome.body.url} className="max-h-96 max-w-full self-start rounded-lg" />
+                  )}
+                </div>
+              )}
             </>
           )}
           {outcome?.kind === "error" && (
