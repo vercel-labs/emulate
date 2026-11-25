@@ -62,6 +62,7 @@
   "devDependencies": {
     "@emulators/ai": "workspace:*",
     "@emulators/core": "workspace:*",
+    "@emulators/expo-push": "workspace:*",
     "@emulators/github": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",

@@ -19,6 +19,7 @@ export const PAGE_TITLES: Record<string, string> = {
   resend: "Resend",
   stripe: "Stripe",
   ai: "AI Responses",
+  "expo-push": "Expo Push",
   authentication: "Authentication",
   architecture: "Architecture",
 };

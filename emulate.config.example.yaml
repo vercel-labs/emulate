@@ -399,3 +399,20 @@ ai:
       reply:
         - type: text
           text: Hello from the emulate AI service.
+
+expo-push:
+  seed: 1
+  devices:
+    - token: ExponentPushToken[test-device]
+      project: "@acme/app"
+      platform: ios
+    - token: ExponentPushToken[old-device]
+      registered: false
+  failures:
+    - id: rate-limited
+      match:
+        channelId: reminders
+      times: 1
+      fail:
+        at: ticket
+        error: MessageRateExceeded

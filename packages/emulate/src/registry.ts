@@ -41,6 +41,7 @@ const SERVICE_NAME_LIST = [
   "linear",
   "twilio",
   "ai",
+  "expo-push",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -659,6 +660,31 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             id: "greeting",
             match: { textContains: "hello" },
             reply: [{ type: "text", text: "Hello from the emulate AI service." }],
+          },
+        ],
+      },
+    },
+  },
+  "expo-push": {
+    label: "Expo Push Service emulator",
+    endpoints:
+      "push send (single, batch, gzip), tickets, receipts, injectable failures, seeded variants, sent-message record, inbox UI",
+    async load() {
+      const mod = await import("@emulators/expo-push");
+      return { plugin: mod.expoPushPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "expo_push_test", id: 1, scopes: [] };
+    },
+    initConfig: {
+      "expo-push": {
+        seed: 1,
+        devices: [{ token: "ExponentPushToken[test-device]", project: "@acme/app", platform: "ios" }],
+        failures: [
+          {
+            id: "gone",
+            match: { token: "ExponentPushToken[gone]" },
+            fail: { at: "receipt", error: "DeviceNotRegistered" },
           },
         ],
       },

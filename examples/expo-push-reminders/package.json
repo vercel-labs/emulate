@@ -1,0 +1,19 @@
+{
+  "name": "expo-push-reminders",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "type-check:tsc": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo-server-sdk": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "emulate": "workspace:*",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
+  }
+}

@@ -38,6 +38,7 @@ export const docsSections: NavSection[] = [
       { name: "Resend", href: "/docs/resend" },
       { name: "Stripe", href: "/docs/stripe" },
       { name: "AI Responses", label: "AI", href: "/docs/ai" },
+      { name: "Expo Push", href: "/docs/expo-push" },
     ],
   },
   {

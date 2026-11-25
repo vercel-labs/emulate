@@ -1,0 +1,51 @@
+{
+  "name": "@emulators/expo-push",
+  "version": "0.14.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "homepage": "https://emulate.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/expo-push"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel-labs/emulate/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsup --clean",
+    "dev": "tsup --watch src",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo",
+    "type-check": "tsc-ts --noEmit",
+    "type-check:tsc": "tsc --noEmit",
+    "lint": "oxlint src",
+    "prepack": "node ../../../scripts/prepare-package.mjs"
+  },
+  "dependencies": {
+    "@emulators/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsc-ts": "0.1.3",
+    "tsup": "^8",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0",
+    "expo-server-sdk": "^8.0.0"
+  }
+}
