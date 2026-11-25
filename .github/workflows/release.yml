@@ -14,46 +14,27 @@ permissions:
   contents: read
 
 env:
-  EMULATOR_PACKAGES: adapter-next adapter-nuxt ai apple aws clerk core github google linear microsoft mongoatlas okta resend slack stripe twilio vercel
+  EMULATOR_PACKAGES: adapter-next adapter-nuxt apple aws clerk core github google linear microsoft mongoatlas okta resend slack stripe twilio vercel
 
 jobs:
   check-release:
     name: Check for new version
     runs-on: ubuntu-latest
     outputs:
-      should_release: ${{ steps.check.outputs.should_release }}
+      state: ${{ steps.check.outputs.state }}
       version: ${{ steps.check.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Compare versions to registry
+      - name: Decide what this run does
         id: check
-        run: |
-          LOCAL_VERSION=$(node -p "require('./packages/emulate/package.json').version")
-          SHOULD_RELEASE=false
-
-          REGISTRY_VERSION=$(npm view emulate version 2>/dev/null || echo "0.0.0")
-          echo "emulate — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
-          if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
-            SHOULD_RELEASE=true
-          fi
-
-          for pkg in $EMULATOR_PACKAGES; do
-            REGISTRY_VERSION=$(npm view "@emulators/$pkg" version 2>/dev/null || echo "0.0.0")
-            echo "@emulators/$pkg — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
-            if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
-              SHOULD_RELEASE=true
-            fi
-          done
-
-          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
-          echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+        run: node scripts/release-state.mjs >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish
     needs: check-release
-    if: needs.check-release.outputs.should_release == 'true'
+    if: needs.check-release.outputs.state != 'nothing'
     runs-on: ubuntu-latest
     environment: Release
     permissions:
@@ -113,7 +94,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     needs: [check-release, publish]
-    if: needs.check-release.outputs.should_release == 'true'
+    if: needs.check-release.outputs.state != 'nothing'
     runs-on: ubuntu-latest
     permissions:
       contents: write
