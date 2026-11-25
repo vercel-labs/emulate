@@ -640,10 +640,10 @@ export function messageboardRoutes(context: RouteContext): void {
     if (isFailure(board)) return board;
     const thread = threadOf(session, board, c.req.param("thread"));
     if (!thread) return fail(c, 404, "thread_not_found");
-    const channel = session.ms.channels.findOneBy("uid", thread.channelId)!;
-    if (!mayRead(session, board, found.identity.who, channel)) return fail(c, 404, "channel_not_found");
     const message = messageOf(session, thread, Number(c.req.param("n")));
     if (!message) return fail(c, 404, "message_not_found");
+    const channel = session.ms.channels.findOneBy("uid", thread.channelId)!;
+    if (!mayRead(session, board, found.identity.who, channel)) return fail(c, 404, "channel_not_found");
     return c.json({
       reactions: reactionRows(session.ms, message).map((reaction) => ({
         emoji: reaction.emoji,

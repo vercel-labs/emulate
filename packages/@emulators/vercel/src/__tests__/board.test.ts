@@ -12,6 +12,7 @@ const TEST_TOKENS = [
   ["test_token_dev", "developer"],
   ["test_token_viewer", "viewer"],
   ["test_token_project", "project:web:production"],
+  ["test_token_app", "app:oac_board_client"],
 ] as const;
 
 let server: Server;
@@ -56,6 +57,14 @@ beforeAll(async () => {
       { slug: "acme", name: "Acme" },
     ],
     projects: [{ name: "web", team: "acme", framework: "nextjs" }],
+    integrations: [
+      {
+        client_id: "oac_board_client",
+        client_secret: "board-secret",
+        name: "Board App",
+        redirect_uris: ["http://localhost:3000/api/auth/callback/vercel"],
+      },
+    ],
     boards: [
       {
         name: "General",
@@ -374,6 +383,41 @@ describe("Vercel board API surface", () => {
     const hidden = await call("GET", `/boards/${board}/threads/${threadId}/messages/1/reactions`, { token: project });
     expect(hidden.status).toBe(404);
     expect(hidden.body.error.code).toBe("channel_not_found");
+  });
+
+  it("hides a message's reactions from an app that cannot read its channel", async () => {
+    const person = "test_token_admin";
+    const app = "test_token_app";
+    const made = await call("POST", "/boards/ensure", { token: person, body: { name: "AppReactionRead" } });
+    const board = made.body.board.id as string;
+    for (const name of ["public", "secret"]) {
+      expect((await call("POST", `/boards/${board}/channels`, { token: person, body: { name } })).status).toBe(200);
+    }
+    const posted = await call("POST", `/boards/${board}/threads`, {
+      token: person,
+      body: { channel: "secret", text: "secret message" },
+    });
+    const threadId = posted.body.message.threadId;
+
+    const grants = await call("GET", `/boards/${board}/grants`, { token: person });
+    const allApps = grants.body.grants.find((grant: any) =>
+      grant.principals.some((principal: any) => principal.kind === "all-apps"),
+    );
+    await call("POST", `/boards/${board}/grants/${allApps.id}/revoke`, { token: person, body: {} });
+    await call("POST", `/boards/${board}/grants`, {
+      token: person,
+      body: {
+        principals: [{ kind: "app", clientId: "oac_board_client" }],
+        can: { public: ["read"] },
+      },
+    });
+
+    const hidden = await call("GET", `/boards/${board}/threads/${threadId}/messages/1/reactions`, { token: app });
+    expect(hidden.status).toBe(404);
+    expect(hidden.body.error.code).toBe("channel_not_found");
+
+    const shown = await call("GET", `/boards/${board}/threads/${threadId}/messages/1/reactions`, { token: person });
+    expect(shown.status).toBe(200);
   });
 
   it("validates label values on a label write", async () => {
