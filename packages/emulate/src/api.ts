@@ -6,6 +6,8 @@ import {
   restoreTokenMap,
   serializeTokenMap,
   type AppKeyResolver,
+  type StoreSnapshot,
+  type TokenEntry,
   type EmulatorDefinition,
   type CustomRuntime,
   type CustomRuntimeOptions,
@@ -49,10 +51,25 @@ export interface GeneratedSecret {
   readonly value: string;
 }
 
+/**
+ * A built-in emulator's state: its store and its token map, which includes tokens
+ * minted at run time. JSON-compatible, so it can be saved and restored later.
+ */
+export interface BuiltinEmulatorSnapshot {
+  formatVersion: 1;
+  service: ServiceName;
+  store: StoreSnapshot;
+  tokens: TokenEntry[];
+}
+
 export interface Emulator {
   url: string;
   readonly generatedSecrets: readonly GeneratedSecret[];
   reset(): void;
+  /** A deep copy of the current state. Webhook subscriptions held by the dispatcher are not included. */
+  snapshot(): BuiltinEmulatorSnapshot;
+  /** Replaces the current state with a snapshot taken from the same service. */
+  restore(snapshot: BuiltinEmulatorSnapshot): void;
   close(): Promise<void>;
 }
 
@@ -245,6 +262,22 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
         webhooks.clear();
         seed();
       },
+      snapshot() {
+        return copyJson<BuiltinEmulatorSnapshot>({
+          formatVersion: 1,
+          service,
+          store: store.snapshot(),
+          tokens: serializeTokenMap(tokenMap),
+        });
+      },
+      restore(snapshot) {
+        if (snapshot?.formatVersion !== 1 || snapshot.service !== service) {
+          throw new Error(`Incompatible snapshot for ${service}. Restore a snapshot taken from a ${service} emulator.`);
+        }
+        const copy = copyJson(snapshot);
+        store.restore(copy.store);
+        restoreTokenMap(tokenMap, copy.tokens);
+      },
       close(): Promise<void> {
         return (closing ??= closeHttpServer(httpServer));
       },
@@ -253,4 +286,10 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
     await closeHttpServer(httpServer);
     throw error;
   }
+}
+
+// Snapshots hold live store entities, so both directions copy: a saved snapshot
+// never changes with the store, and a restored one is never aliased by the caller.
+function copyJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
