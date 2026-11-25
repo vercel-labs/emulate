@@ -1,8 +1,38 @@
 # Changelog
 
-## 0.14.0
+## 0.15.0
 
 <!-- release:start -->
+
+### New Features
+
+- Added **OpenAI and xAI image generation** to `@emulators/ai` (`images/generations` and `images/edits`) with deterministic PNG, JPEG, WebP, GIF, and SVG output, streamed partial images, multipart and JSON edits, and task-based rule matching (#423)
+- Added **OpenAI and ElevenLabs audio** to `@emulators/ai`, covering OpenAI speech (file and SSE), transcriptions, translations, Chat Completions audio input and output, and ElevenLabs text to speech and speech to text (#424)
+- Added **OpenAI, xAI, and Veo video jobs** (Gemini API and Vertex AI) to `@emulators/ai` with a deterministic poll state machine, H.264 MP4 output, and `video` and `video_error` rule events (#425)
+- Added **decision models** to `@emulators/ai` for OpenAI, Gemini, TypeSafe (including zstd request bodies), OpenRouter, and Perplexity, with deterministic probabilities and scripted decision rules (#426)
+- Added **Gemini `generateContent` and `streamGenerateContent`** to `@emulators/ai` with text, function calling, structured output, thoughts, and `IMAGE` and `AUDIO` response modalities (#427)
+- Added the **AI Gateway protocol** (`/v4/ai` across language, image, speech, transcription, video, and decisions) and **Chat Completions image output** (`message.images`) to `@emulators/ai` (#434)
+- Added an **in-browser emulator playground** at `/playground` running all emulators in a service worker with request consoles and five interactive flows, plus a combined Next.js example app in `examples/playground` (#412)
+
+### Improvements
+
+- Added **`fallbackUser`** to framework adapter entries so embedded emulators can map unknown bearer tokens to a default user (#412)
+- Updated the **docs site** with the Vercel Labs header lockup and OG card generator using content-hashed image URLs (#440, #441, #442, #443)
+
+### Bug Fixes
+
+- Sandboxed **uploaded files** served by Vercel Blob, S3, Google Drive, and Slack via `c.file`, setting `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox` for HTML, XML, XSL, RDF, SVG, and untyped responses (#412)
+- Validated **OAuth callback redirect URIs** against registered clients in Apple, GitHub, Google, Slack, and Vercel, and restricted `form_post` actions and Stripe checkout cancel links to `http` and `https` URLs (#412)
+- Fixed **multipart field parsing** in `@emulators/ai` to append repeated fields in place instead of copying on each repeat (#439)
+
+### Contributors
+
+- @lahfir
+- @ctate
+
+<!-- release:end -->
+
+## 0.14.0
 
 ### New Features
 
@@ -36,8 +66,6 @@
 - @lahfir
 - @ctate
 - @Railly
-
-<!-- release:end -->
 
 ## 0.13.1
 
