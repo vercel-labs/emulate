@@ -157,7 +157,9 @@ export function pushRoutes(ctx: RouteContext): void {
       const { ticket, receipt } = decisions[index];
       es().messages.insert({ request_id: requestId, index, token, message, ticket, receipt });
     });
-    return c.json({ data: decisions.map((d) => d.ticket) }, 200);
+    const tickets = decisions.map((d) => d.ticket);
+    // Expo answers a single message to a single recipient with one ticket object, everything else with an array.
+    return c.json({ data: !Array.isArray(body.value) && tickets.length === 1 ? tickets[0] : tickets }, 200);
   });
 
   app.post("/--/api/v2/push/getReceipts", async (c) => {

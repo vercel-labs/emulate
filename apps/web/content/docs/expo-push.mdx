@@ -6,7 +6,7 @@ Expo Push Service emulation: send with single messages, batches, and gzip bodies
 
 ## Endpoints
 
-- `POST /--/api/v2/push/send` sends one message object or an array. Each `to` may be a token or an array of tokens. The response is `{ "data": [ticket, ...] }`, one ticket per recipient in request order.
+- `POST /--/api/v2/push/send` sends one message object or an array. Each `to` may be a token or an array of tokens. The response is `{ "data": [ticket, ...] }`, one ticket per recipient in request order, except that a single message object sent to a single recipient gets `{ "data": ticket }`, as Expo documents.
 - `POST /--/api/v2/push/getReceipts` takes `{ "ids": [...] }` and returns `{ "data": { "<id>": receipt } }`. Unknown ids are left out.
 - `GET /inbox` lists what was sent.
 
@@ -111,7 +111,6 @@ Programmatic helpers: `setDeviceRegistered(store, token, registered)`, `addFailu
 
 ## Limits
 
-- Tickets come back as an array even for a single message object. The docs describe the array form; check your client if it expects a bare object.
 - Receipts are available immediately and never expire. The real service makes them available after a delay and clears them after 24 hours.
 - There is no delivery to a device, no APNs or FCM behavior, and no per-device rate limiting. Use failure rules for those.
 - Token validation is the same format check `expo-server-sdk` uses. The emulator cannot know whether a token belongs to a real device.

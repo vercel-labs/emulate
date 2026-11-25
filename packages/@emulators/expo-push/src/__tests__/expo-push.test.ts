@@ -53,13 +53,39 @@ describe("Expo Push plugin - send", () => {
     ({ app, store } = createTestApp());
   });
 
-  it("returns one ok ticket with an id for a single message", async () => {
-    const res = await send(app, { to: ALICE, title: "Reminder", body: "Haircut at 10:00" });
+  it("returns one ok ticket with an id for a message in an array", async () => {
+    const res = await send(app, [{ to: ALICE, title: "Reminder", body: "Haircut at 10:00" }]);
     expect(res.status).toBe(200);
     const { data } = (await res.json()) as { data: Ticket[] };
     expect(data).toHaveLength(1);
     expect(data[0].status).toBe("ok");
     expect(data[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("returns a bare ticket object for a single message object to a single recipient", async () => {
+    const res = await send(app, { to: ALICE, title: "Reminder" });
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: Ticket };
+    expect(Array.isArray(data)).toBe(false);
+    expect(data.status).toBe("ok");
+    expect(data.id).toMatch(/^[0-9a-f]{8}-/);
+    const bad = (await (await send(app, { to: "nope" })).json()) as { data: Ticket };
+    expect(bad.data.status).toBe("error");
+    expect(bad.data.details?.error).toBe("DeviceNotRegistered");
+  });
+
+  it("keeps an array of tickets for a single message object sent to several recipients", async () => {
+    const res = await send(app, { to: [ALICE, BOB], title: "Reminder" });
+    const { data } = (await res.json()) as { data: Ticket[] };
+    expect(data).toHaveLength(2);
+  });
+
+  it("accepts the critical sound object that expo-server-sdk types allow", async () => {
+    for (const sound of [{ critical: true, name: "default", volume: 0.5 }, { name: null }, {}, "default", null]) {
+      const res = await send(app, [{ to: ALICE, title: "Alarm", sound }]);
+      expect(res.status).toBe(200);
+    }
+    expect(sentTo(store, ALICE)[0].message.sound).toEqual({ critical: true, name: "default", volume: 0.5 });
   });
 
   it("returns tickets in request order and expands a to array into one ticket per token", async () => {
@@ -113,6 +139,10 @@ describe("Expo Push plugin - send", () => {
       [{ to: ALICE, priority: "urgent" }, '"priority" must be one of [default, normal, high]'],
       [{ to: ALICE, data: "str" }, '"data" must be an object'],
       [{ to: ALICE, badge: "1" }, '"badge" must be a number'],
+      [{ to: ALICE, sound: 5 }, '"sound" must be a string, null, or an object'],
+      [{ to: ALICE, sound: { critical: "yes" } }, '"sound.critical" must be a boolean'],
+      [{ to: ALICE, sound: { name: 3 } }, '"sound.name" must be a string or null'],
+      [{ to: ALICE, sound: { volume: "loud" } }, '"sound.volume" must be a number'],
     ] as const) {
       const res = await send(app, message);
       expect(res.status).toBe(400);
@@ -178,7 +208,7 @@ describe("Expo Push plugin - receipts", () => {
 
   it("reports DeviceNotRegistered on the receipt of an unregistered device, not on the ticket", async () => {
     const { app, store } = createTestApp({ devices: [{ token: ALICE, registered: false }] });
-    const sent = (await (await send(app, { to: ALICE })).json()) as { data: Ticket[] };
+    const sent = (await (await send(app, [{ to: ALICE }])).json()) as { data: Ticket[] };
     expect(sent.data[0].status).toBe("ok");
     const body = (await (await receipts(app, [sent.data[0].id as string])).json()) as {
       data: Record<string, Ticket>;
@@ -186,7 +216,7 @@ describe("Expo Push plugin - receipts", () => {
     expect(body.data[sent.data[0].id as string].details?.error).toBe("DeviceNotRegistered");
 
     setDeviceRegistered(store, BOB, false);
-    const second = (await (await send(app, { to: BOB })).json()) as { data: Ticket[] };
+    const second = (await (await send(app, [{ to: BOB }])).json()) as { data: Ticket[] };
     const again = (await (await receipts(app, [second.data[0].id as string])).json()) as {
       data: Record<string, Ticket>;
     };
@@ -241,17 +271,17 @@ describe("Expo Push plugin - injectable failures", () => {
         channelId: "reminders",
         data: { appointmentId: 7, extra: true },
       })
-    ).json()) as { data: Ticket[] };
+    ).json()) as { data: Ticket };
     const miss = (await (
       await send(app, { to: ALICE, title: "Reminder", body: "10:00", data: { appointmentId: 8 } })
     ).json()) as {
-      data: Ticket[];
+      data: Ticket;
     };
-    const got = (await (await receipts(app, [hit.data[0].id as string, miss.data[0].id as string])).json()) as {
+    const got = (await (await receipts(app, [hit.data.id as string, miss.data.id as string])).json()) as {
       data: Record<string, Ticket>;
     };
-    expect(got.data[hit.data[0].id as string]).toMatchObject({ status: "error", message: "sender mismatch" });
-    expect(got.data[miss.data[0].id as string]).toEqual({ status: "ok" });
+    expect(got.data[hit.data.id as string]).toMatchObject({ status: "error", message: "sender mismatch" });
+    expect(got.data[miss.data.id as string]).toEqual({ status: "ok" });
   });
 
   it("fails the whole request with a request-level error and records no messages", async () => {
@@ -325,7 +355,7 @@ describe("Expo Push plugin - seeded variants", () => {
     const { app } = createTestApp({ seed, failures: [{ id: "flaky", fail: [...variants] }] });
     const out: string[] = [];
     for (let i = 0; i < count; i += 1) {
-      const { data } = (await (await send(app, { to: ALICE })).json()) as { data: Ticket[] };
+      const { data } = (await (await send(app, [{ to: ALICE }])).json()) as { data: Ticket[] };
       if (data[0].status === "error") out.push("ticket:" + data[0].details?.error);
       else {
         const r = (await (await receipts(app, [data[0].id as string])).json()) as { data: Record<string, Ticket> };
@@ -409,10 +439,10 @@ describe("Expo Push plugin - assertions and control routes", () => {
         body: JSON.stringify({ failures }),
       });
     expect((await put([{ times: 1, fail: { at: "ticket", error: "MessageRateExceeded" } }])).status).toBe(200);
-    expect(((await (await send(app, { to: ALICE })).json()) as { data: Ticket[] }).data[0].status).toBe("error");
-    expect(((await (await send(app, { to: ALICE })).json()) as { data: Ticket[] }).data[0].status).toBe("ok");
+    expect(((await (await send(app, [{ to: ALICE }])).json()) as { data: Ticket[] }).data[0].status).toBe("error");
+    expect(((await (await send(app, [{ to: ALICE }])).json()) as { data: Ticket[] }).data[0].status).toBe("ok");
     await put([{ times: 1, fail: { at: "ticket", error: "MessageRateExceeded" } }]);
-    expect(((await (await send(app, { to: ALICE })).json()) as { data: Ticket[] }).data[0].status).toBe("error");
+    expect(((await (await send(app, [{ to: ALICE }])).json()) as { data: Ticket[] }).data[0].status).toBe("error");
     expect((await put([{ fail: { at: "ticket", error: "Nope" } }])).status).toBe(400);
   });
 

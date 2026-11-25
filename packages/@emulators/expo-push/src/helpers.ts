@@ -99,8 +99,17 @@ export function validateMessage(message: unknown): string | null {
   for (const field of BOOLEAN_FIELDS) {
     if (message[field] !== undefined && typeof message[field] !== "boolean") return `"${field}" must be a boolean`;
   }
-  if (message.sound !== undefined && message.sound !== null && typeof message.sound !== "string") {
-    return `"sound" must be a string or null`;
+  const sound = message.sound;
+  if (sound !== undefined && sound !== null && typeof sound !== "string") {
+    if (!isPlainObject(sound)) return `"sound" must be a string, null, or an object`;
+    if (sound.critical !== undefined && typeof sound.critical !== "boolean")
+      return `"sound.critical" must be a boolean`;
+    if (sound.name !== undefined && sound.name !== null && typeof sound.name !== "string") {
+      return `"sound.name" must be a string or null`;
+    }
+    if (sound.volume !== undefined && (typeof sound.volume !== "number" || !Number.isFinite(sound.volume))) {
+      return `"sound.volume" must be a number`;
+    }
   }
   if (message.data !== undefined && !isPlainObject(message.data)) return `"data" must be an object`;
   if (message.richContent !== undefined && !isPlainObject(message.richContent))
