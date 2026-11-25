@@ -383,7 +383,11 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     closed_at: issue.closed_at,
     closed_by: closedBy ? formatUser(closedBy, baseUrl) : null,
     body: issue.body,
-    reactions: reactionRollup(store, { repoId: issue.repo_id, issueNumber: issue.number }, `${repoUrl}/issues/${issue.number}`),
+    reactions: reactionRollup(
+      store,
+      { repoId: issue.repo_id, issueNumber: issue.number },
+      `${repoUrl}/issues/${issue.number}`,
+    ),
     timeline_url: `${repoUrl}/issues/${issue.number}/timeline`,
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
@@ -411,12 +415,7 @@ export interface PullRequestLive {
   changedFiles: number;
 }
 
-export function formatPullRequest(
-  pr: GitHubPullRequest,
-  store: GitHubStore,
-  baseUrl: string,
-  live?: PullRequestLive,
-) {
+export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, baseUrl: string, live?: PullRequestLive) {
   const repo = store.repos.get(pr.repo_id);
   if (!repo) return null;
   const user = store.users.get(pr.user_id);
@@ -573,7 +572,11 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
       updated_at: comment.updated_at,
       author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
       body: comment.body,
-      reactions: reactionRollup(store, { repoId: comment.repo_id, commentId: comment.id }, `${repoUrl}/issues/comments/${comment.id}`),
+      reactions: reactionRollup(
+        store,
+        { repoId: comment.repo_id, commentId: comment.id },
+        `${repoUrl}/issues/comments/${comment.id}`,
+      ),
       performed_via_github_app: null,
     };
   }
@@ -597,7 +600,11 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
       created_at: comment.created_at,
       updated_at: comment.updated_at,
       author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
-      reactions: reactionRollup(store, { repoId: comment.repo_id, commentId: comment.id }, `${repoUrl}/pulls/comments/${comment.id}`),
+      reactions: reactionRollup(
+        store,
+        { repoId: comment.repo_id, commentId: comment.id },
+        `${repoUrl}/pulls/comments/${comment.id}`,
+      ),
       line: comment.line,
       side: comment.side ?? "RIGHT",
       subject_type: comment.subject_type ?? "line",
@@ -619,7 +626,11 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
     created_at: comment.created_at,
     updated_at: comment.updated_at,
     author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
-    reactions: reactionRollup(store, { repoId: comment.repo_id, commentId: comment.id }, `${repoUrl}/comments/${comment.id}`),
+    reactions: reactionRollup(
+      store,
+      { repoId: comment.repo_id, commentId: comment.id },
+      `${repoUrl}/comments/${comment.id}`,
+    ),
   };
 }
 

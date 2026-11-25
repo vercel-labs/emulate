@@ -86,18 +86,12 @@ describe("GET /user/repos", () => {
   it("filters by visibility", async () => {
     expect(await listRepos(app, "member-token", "?visibility=public")).toEqual(["acme/public-repo"]);
     expect(await listRepos(app, "member-token", "?visibility=private")).toEqual(["acme/private-repo"]);
-    expect(await listRepos(app, "member-token", "?visibility=all")).toEqual([
-      "acme/private-repo",
-      "acme/public-repo",
-    ]);
+    expect(await listRepos(app, "member-token", "?visibility=all")).toEqual(["acme/private-repo", "acme/public-repo"]);
   });
 
   it("keeps the legacy type parameter", async () => {
     expect(await listRepos(app, "member-token", "?type=owner")).toEqual([]);
-    expect(await listRepos(app, "member-token", "?type=member")).toEqual([
-      "acme/private-repo",
-      "acme/public-repo",
-    ]);
+    expect(await listRepos(app, "member-token", "?type=member")).toEqual(["acme/private-repo", "acme/public-repo"]);
     expect(await listRepos(app, "collaborator-token", "?type=all")).toEqual(["octocat/hello-world"]);
   });
 

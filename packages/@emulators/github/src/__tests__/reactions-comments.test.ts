@@ -173,6 +173,56 @@ describe("issue and pull request comment counts and reactions", () => {
     expect(comment.reactions.total_count).toBe(1);
   });
 
+  it("keeps review- and commit-comment reactions when the issue tracker is off", async () => {
+    const disabled = await app.request(`${base}/repos/octocat/hello-world`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ has_issues: false }),
+    });
+    expect(disabled.status).toBe(200);
+
+    const number = await createPull(app);
+    const pull = (await (
+      await app.request(`${base}/repos/octocat/hello-world/pulls/${number}`, { headers: readHeaders() })
+    ).json()) as { head: { sha: string } };
+
+    const reviewRes = await app.request(`${base}/repos/octocat/hello-world/pulls/${number}/comments`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ body: "review note", path: "src/app.ts" }),
+    });
+    expect(reviewRes.status).toBe(201);
+    const reviewId = ((await reviewRes.json()) as { id: number }).id;
+    const reviewReaction = await app.request(`${base}/repos/octocat/hello-world/pulls/comments/${reviewId}/reactions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ content: "+1" }),
+    });
+    expect(reviewReaction.status).toBe(201);
+
+    const commitRes = await app.request(`${base}/repos/octocat/hello-world/commits/${pull.head.sha}/comments`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ body: "commit note" }),
+    });
+    expect(commitRes.status).toBe(201);
+    const commitId = ((await commitRes.json()) as { id: number }).id;
+    const commitReaction = await app.request(`${base}/repos/octocat/hello-world/comments/${commitId}/reactions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ content: "heart" }),
+    });
+    expect(commitReaction.status).toBe(201);
+
+    // The issue tracker itself is still closed.
+    const issueReaction = await app.request(`${base}/repos/octocat/hello-world/issues/${number}/reactions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ content: "+1" }),
+    });
+    expect(issueReaction.status).toBe(404);
+  });
+
   it("rejects unknown reaction content", async () => {
     const number = await createIssue(app);
     const res = await app.request(`${base}/repos/octocat/hello-world/issues/${number}/reactions`, {

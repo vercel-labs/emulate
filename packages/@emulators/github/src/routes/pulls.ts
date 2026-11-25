@@ -164,6 +164,8 @@ function liveHeadSha(gh: GitHubStore, pr: GitHubPullRequest): string {
 
 /** The tip of the base branch, which decides the merge base for the pull request's diff. */
 function liveBaseSha(gh: GitHubStore, pr: GitHubPullRequest): string {
+  // After a merge the base branch includes the pull request's own commits, which would make its diff empty.
+  if (pr.merged) return pr.base_sha;
   const baseRepo = gh.repos.get(pr.base_repo_id);
   if (!baseRepo) return pr.base_sha;
   const branch = gh.branches.findBy("repo_id", baseRepo.id).find((b) => b.name === pr.base_ref);
@@ -708,9 +710,16 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
     const liveHead = liveHeadSha(gh, pr);
     const liveBase = liveBaseSha(gh, pr);
-    if (liveHead !== pr.head_sha || liveBase !== pr.base_sha) {
-      pr = gh.pullRequests.update(pr.id, { head_sha: liveHead, base_sha: liveBase }) ?? pr;
+    const live = pullLive(gh, pr);
+    const livePatch: Partial<GitHubPullRequest> = { head_sha: liveHead, base_sha: liveBase };
+    if (live) {
+      // Freeze the counts as of the merge; the base branch moves on afterwards.
+      livePatch.commits = live.commits;
+      livePatch.additions = live.additions;
+      livePatch.deletions = live.deletions;
+      livePatch.changed_files = live.changedFiles;
     }
+    pr = gh.pullRequests.update(pr.id, livePatch) ?? pr;
 
     const body = await parseJsonBody(c);
     if (typeof body.sha === "string" && body.sha !== pr.head_sha) {

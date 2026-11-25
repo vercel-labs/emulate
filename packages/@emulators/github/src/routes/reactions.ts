@@ -4,13 +4,7 @@ import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubReaction, GitHubRepo } from "../entities.js";
 import { assertRepoPermission, assertRepoWrite, notFoundResponse } from "../route-helpers.js";
-import {
-  formatReaction,
-  generateNodeId,
-  lookupRepo,
-  REACTION_CONTENTS,
-  type ReactionContent,
-} from "../helpers.js";
+import { formatReaction, generateNodeId, lookupRepo, REACTION_CONTENTS, type ReactionContent } from "../helpers.js";
 
 type Subject = "issue" | "issue_comment" | "review_comment" | "commit_comment";
 
@@ -39,6 +33,11 @@ function isReactionContent(value: unknown): value is ReactionContent {
   return typeof value === "string" && (REACTION_CONTENTS as readonly string[]).includes(value);
 }
 
+/** Only issue reactions and issue-comment reactions live behind the repository's issue tracker. */
+function requiresIssueTracker(kind: Subject): boolean {
+  return kind === "issue" || kind === "issue_comment";
+}
+
 export function reactionsRoutes({ app, store, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
@@ -46,7 +45,7 @@ export function reactionsRoutes({ app, store, baseUrl }: RouteContext): void {
     const permissions = ["issues", "pull_requests"];
     const subject = (c: Context) => {
       const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
-      if (!repo || !repo.has_issues) throw notFoundResponse();
+      if (!repo || (requiresIssueTracker(kind) && !repo.has_issues)) throw notFoundResponse();
       const id = readId(c);
       if (!Number.isFinite(id) || !subjectExists(gh, repo, kind, id)) throw notFoundResponse();
       return { repo, id };
@@ -72,7 +71,7 @@ export function reactionsRoutes({ app, store, baseUrl }: RouteContext): void {
 
     app.post(`${path}/reactions`, async (c) => {
       const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
-      if (!repo || !repo.has_issues) throw notFoundResponse();
+      if (!repo || (requiresIssueTracker(kind) && !repo.has_issues)) throw notFoundResponse();
       const actor = assertRepoWrite(gh, c.get("authUser"), repo, permissions);
       const id = readId(c);
       if (!Number.isFinite(id) || !subjectExists(gh, repo, kind, id)) throw notFoundResponse();
@@ -99,7 +98,7 @@ export function reactionsRoutes({ app, store, baseUrl }: RouteContext): void {
 
     app.delete(`${path}/reactions/:reaction_id`, (c) => {
       const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
-      if (!repo || !repo.has_issues) throw notFoundResponse();
+      if (!repo || (requiresIssueTracker(kind) && !repo.has_issues)) throw notFoundResponse();
       assertRepoWrite(gh, c.get("authUser"), repo, permissions);
 
       const id = readId(c);
@@ -125,7 +124,5 @@ export function reactionsRoutes({ app, store, baseUrl }: RouteContext): void {
   register("/repos/:owner/:repo/comments/:comment_id", "commit_comment", (c) =>
     parseInt(c.req.param("comment_id")!, 10),
   );
-  register("/repos/:owner/:repo/issues/:issue_number", "issue", (c) =>
-    parseInt(c.req.param("issue_number")!, 10),
-  );
+  register("/repos/:owner/:repo/issues/:issue_number", "issue", (c) => parseInt(c.req.param("issue_number")!, 10));
 }

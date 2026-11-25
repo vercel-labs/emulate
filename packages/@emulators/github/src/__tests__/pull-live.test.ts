@@ -41,6 +41,15 @@ async function createPull(app: Hono): Promise<number> {
   return ((await res.json()) as { number: number }).number;
 }
 
+async function mergePull(app: Hono, pullNumber: number): Promise<void> {
+  const res = await app.request(`${base}/repos/octocat/hello-world/pulls/${pullNumber}/merge`, {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify({}),
+  });
+  expect(res.status).toBe(200);
+}
+
 async function pushFile(app: Hono, path: string, text: string): Promise<string> {
   const res = await app.request(`${base}/repos/octocat/hello-world/contents/${path}`, {
     method: "PUT",
@@ -113,5 +122,55 @@ describe("pull request head follows pushed commits", () => {
     expect(commitsRes.status).toBe(200);
     const commits = (await commitsRes.json()) as Array<{ sha: string }>;
     expect(commits.map((commit) => commit.sha)).toEqual([first, second]);
+  });
+
+  it("keeps the files and commits after a normal merge", async () => {
+    const pullNumber = await createPull(app);
+    const sha = await pushFile(app, "src/app.ts", "export const answer = 42\n");
+    await mergePull(app, pullNumber);
+
+    const filesRes = await app.request(`${base}/repos/octocat/hello-world/pulls/${pullNumber}/files`, {
+      headers: { Authorization: "Bearer test-token" },
+    });
+    expect(filesRes.status).toBe(200);
+    const files = (await filesRes.json()) as Array<{ filename: string }>;
+    expect(files.map((file) => file.filename)).toEqual(["src/app.ts"]);
+
+    const commitsRes = await app.request(`${base}/repos/octocat/hello-world/pulls/${pullNumber}/commits`, {
+      headers: { Authorization: "Bearer test-token" },
+    });
+    expect(commitsRes.status).toBe(200);
+    const commits = (await commitsRes.json()) as Array<{ sha: string }>;
+    expect(commits.map((commit) => commit.sha)).toEqual([sha]);
+  });
+
+  it("keeps the post-push stats on a merged pull request", async () => {
+    const pullNumber = await createPull(app);
+    await pushFile(app, "src/app.ts", "export const answer = 42\n");
+
+    const merged = await app.request(`${base}/repos/octocat/hello-world/pulls/${pullNumber}`, {
+      headers: { Authorization: "Bearer test-token" },
+    });
+    const before = (await merged.json()) as {
+      changed_files: number;
+      additions: number;
+      deletions: number;
+      commits: number;
+    };
+    expect(before).toMatchObject({ changed_files: 1, additions: 1, deletions: 0, commits: 1 });
+
+    await mergePull(app, pullNumber);
+
+    const after = (await (
+      await app.request(`${base}/repos/octocat/hello-world/pulls/${pullNumber}`, {
+        headers: { Authorization: "Bearer test-token" },
+      })
+    ).json()) as { merged: boolean; changed_files: number; additions: number; deletions: number; commits: number };
+
+    expect(after.merged).toBe(true);
+    expect(after.changed_files).toBe(1);
+    expect(after.additions).toBe(1);
+    expect(after.deletions).toBe(0);
+    expect(after.commits).toBe(1);
   });
 });
