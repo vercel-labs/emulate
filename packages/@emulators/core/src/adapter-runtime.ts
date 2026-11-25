@@ -374,6 +374,17 @@ export function createAdapterRuntime(
           prepared = await prepareFreshState();
         }
       }
+      if (restored) {
+        // Dispatcher subscriptions are runtime state, not store rows: re-attach them from the restored store.
+        for (const [name, service] of serviceApps) {
+          if (service.custom) continue;
+          service.plugin.restore?.(
+            service.store,
+            service.webhooks,
+            `${origin}${servicePath(mountPath, name)}`,
+          );
+        }
+      }
       if (!restored) {
         for (const [name, entry] of Object.entries(serviceEntries)) {
           const service = serviceApps.get(name)!;

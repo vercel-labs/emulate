@@ -173,6 +173,11 @@ export const resendPlugin: ServicePlugin = {
   seed(_store: Store, _baseUrl: string): void {
     // No default seed data - inbox starts empty
   },
+  restore(store, webhooks): void {
+    // A restart rebuilds the dispatcher; webhooks stored in the restored state need their subscriptions again.
+    webhooks.setHeaderFactory(svixWebhookHeaders);
+    for (const webhook of getResendStore(store).webhooks.all()) subscribeWebhook(webhooks, webhook);
+  },
 };
 
 export default resendPlugin;
