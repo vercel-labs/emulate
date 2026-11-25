@@ -81,6 +81,10 @@ export interface SlackSeedConfig {
     channel: string;
     label?: string;
   }>;
+  event_subscriptions?: Array<{
+    url: string;
+    events?: string[];
+  }>;
   strict_scopes?: boolean;
   signing_secret?: string;
   verification_token?: string;
@@ -202,7 +206,12 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   });
 }
 
-export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeedConfig): void {
+export function seedFromConfig(
+  store: Store,
+  _baseUrl: string,
+  config: SlackSeedConfig,
+  webhooks?: WebhookDispatcher,
+): void {
   const ss = getSlackStore(store);
 
   if (config.team) {
@@ -362,6 +371,17 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
         default_channel: wh.channel,
         label: wh.label ?? wh.channel,
         url: `/services/${teamId}/${botId}/${token}`,
+      });
+    }
+  }
+
+  if (config.event_subscriptions && webhooks) {
+    for (const subscription of config.event_subscriptions) {
+      webhooks.register({
+        url: subscription.url,
+        events: subscription.events ?? ["*"],
+        active: true,
+        owner: "slack",
       });
     }
   }

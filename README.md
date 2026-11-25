@@ -1055,6 +1055,16 @@ Google authentication is permissive by default for local bearer-token workflows.
 
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. Supported write state changes dispatch Slack `event_callback` payloads to configured webhook URLs.
 
+Set `slack.event_subscriptions` in seed config to send event callbacks to your app, the same as the Event Subscriptions Request URL of a Slack app. Each entry takes a `url` and an optional `events` list of event types, such as `message` or `app_mention`. Without `events`, the URL receives every event. `reset()` restores these subscriptions.
+
+```yaml
+slack:
+  event_subscriptions:
+    - url: http://localhost:3000/api/slack/events
+    - url: http://localhost:3000/api/slack/reactions
+      events: [reaction_added, reaction_removed]
+```
+
 Set `slack.signing_secret` in seed config to sign every outbound event subscription callback. The emulator sends `X-Slack-Request-Timestamp` and `X-Slack-Signature`, where the signature is `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`. Configure the receiver with the same secret and verify the unparsed request body. Without a secret, callbacks are unsigned.
 
 Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
