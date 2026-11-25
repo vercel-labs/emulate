@@ -810,6 +810,13 @@ microsoft:
 
 Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination.
 
+### OAuth
+
+- `GET /.well-known/openid-configuration` - OpenID configuration, with the device authorization endpoint
+- `POST /oauth/device_authorization` - start a device authorization grant (`device_code`, `user_code`, `verification_uri`, `expires_in`, `interval`)
+- `GET /oauth/device` - verification page; approve a code as a seeded user
+- `POST /login/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:device_code` - poll the grant; answers `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` until approved
+
 ### User & Teams
 - `GET /v2/user` - authenticated user
 - `PATCH /v2/user` - update user
