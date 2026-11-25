@@ -224,6 +224,22 @@ describe("WebhookDispatcher", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it("follows redirects unless the subscription opts out", async () => {
+      const d = new WebhookDispatcher();
+      d.register({ url: "https://hooks.example/default", events: ["push"], active: true, owner: "o" });
+      d.register({
+        url: "https://hooks.example/strict",
+        events: ["push"],
+        active: true,
+        owner: "o",
+        followRedirects: false,
+      });
+
+      await d.dispatch("push", undefined, {}, "o");
+
+      expect(mockFetch.mock.calls.map((c) => (c[1] as RequestInit).redirect)).toEqual(["follow", "manual"]);
+    });
+
     it("records deliveries with status and success from the response", async () => {
       const d = new WebhookDispatcher();
       const sub = d.register({

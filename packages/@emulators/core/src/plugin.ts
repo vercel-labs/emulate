@@ -28,6 +28,8 @@ export interface ServicePlugin {
     options?: RegisterOptions,
   ): void;
   seed?(store: Store, baseUrl: string): void;
+  /** Re-attach runtime registrations that live only in the dispatcher, such as webhook subscriptions, after state was restored from a snapshot. */
+  restore?(store: Store, webhooks: WebhookDispatcher, baseUrl: string): void;
   /** Renders every error core produces for the service (thrown errors, unmatched routes, rate limit and auth rejections) in the service's native format instead of the default GitHub-shaped body. */
   formatError?(error: unknown, c: Context<AppEnv>, status: number): Response | Promise<Response>;
   /** Set to false to skip the shared GitHub-style rate limiter and its X-RateLimit headers. */

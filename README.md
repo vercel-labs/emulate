@@ -1248,6 +1248,28 @@ Validated sends append one record per email to the `resend.send_attempts` store 
 
 Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/resend`, or inspect the persisted state. Shared adapter snapshots use the key `resend:resend.send_attempts`. Attempts and recipient restrictions survive saved-state restoration, including rejected sends. There is no additional Resend API endpoint for attempts. A rejected send has an attempt without an email; a send that never happened has neither.
 
+### Webhooks
+
+Register endpoints with `POST /webhooks` (`endpoint` and `events`) on hosts listed in `resend.webhook_hosts`, or seed them with `resend.webhooks`. Deliveries carry Svix `svix-id`, `svix-timestamp`, and `svix-signature` headers, signed with the webhook's `whsec_` signing secret as Resend signs them, so `resend.webhooks.verify()` and the `svix` library accept them. `GET /webhooks/:id` returns the secret. A `3xx` response counts as a failed attempt and is not followed, as Svix treats redirects.
+
+```yaml
+resend:
+  webhooks:
+    - endpoint: http://localhost:3000/api/webhooks/resend
+      events: [email.sent, email.delivered]
+```
+
+Without `events`, a seeded webhook subscribes to every event the emulator sends. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts.
+
+Webhooks created or updated through the API must use an `http` or `https` endpoint on a host listed in `resend.webhook_hosts`. Without that setting, the API registers no webhooks: `POST /webhooks` and an endpoint change through `PATCH /webhooks/:id` return `403 validation_error`. A host missing from the list also returns `403 validation_error`, and an endpoint that isn't an HTTP URL returns `422 validation_error`. Seeded webhooks come from your own config and are not checked. Hosts match by exact name, without ports or wildcards. To register a local receiver or a Docker Compose service through the API, list its host:
+
+```yaml
+resend:
+  webhook_hosts: [localhost, app]
+```
+
+The emulator sends deliveries from its own host and accepts any API key, so this list decides which hosts its clients can make it contact. Keep it to the receivers you expect, especially when the emulator listens on a network address. This is a local control, not part of Resend's API.
+
 ## Linear API
 
 Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, `Linear-Timestamp`, and `Linear-Signature` headers when webhooks are configured.

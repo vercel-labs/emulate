@@ -8,6 +8,8 @@ export interface WebhookSubscription {
   secret?: string;
   owner: string;
   repo?: string;
+  /** When false, a 3xx response is recorded as a failed delivery instead of being followed. Defaults to true. */
+  followRedirects?: boolean;
 }
 
 export interface WebhookDelivery {
@@ -182,6 +184,7 @@ export class WebhookDispatcher {
         method: "POST",
         headers,
         body,
+        redirect: sub.followRedirects === false ? "manual" : "follow",
         signal: this.options.signal
           ? AbortSignal.any([this.options.signal, AbortSignal.timeout(10000)])
           : AbortSignal.timeout(10000),
