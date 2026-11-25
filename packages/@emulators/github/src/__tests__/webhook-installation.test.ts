@@ -1014,6 +1014,44 @@ describe("app webhook_url delivery", () => {
     expect(body.installation.id).toBe(55);
   });
 
+  it("gives each app webhook delivery its own GUID, even within the same millisecond", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { app } = createTestApp({
+        users: [{ login: "octocat" }],
+        repos: [{ owner: "octocat", name: "hello-world" }],
+        apps: [
+          {
+            app_id: 550,
+            slug: "delivery-app",
+            name: "Delivery App",
+            private_key: "fake-key",
+            events: ["issues"],
+            webhook_url: "https://delivery.example/webhook",
+            installations: [{ installation_id: 57, account: "octocat", repository_selection: "all" }],
+          },
+        ],
+      });
+
+      for (const title of ["First delivery", "Second delivery"]) {
+        await app.request(`${base}/repos/octocat/hello-world/issues`, {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+      }
+
+      const ids = mockFetch.mock.calls
+        .filter((c) => c[0] === "https://delivery.example/webhook")
+        .map((c) => ((c[1] as RequestInit).headers as Record<string, string>)["X-GitHub-Delivery"]);
+      expect(ids).toHaveLength(2);
+      for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(new Set(ids).size).toBe(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("signs app webhook delivery with webhook_secret", async () => {
     const secret = "app-webhook-secret";
     const { app } = createTestApp({
