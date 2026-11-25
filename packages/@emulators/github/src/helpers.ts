@@ -352,6 +352,9 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
 
   const milestone = issue.milestone_id ? store.milestones.get(issue.milestone_id) : null;
   const closedBy = issue.closed_by_id ? store.users.get(issue.closed_by_id) : null;
+  const pull = issue.is_pull_request
+    ? store.pullRequests.findBy("repo_id", issue.repo_id).find((row) => row.number === issue.number)
+    : undefined;
 
   return {
     url: `${repoUrl}/issues/${issue.number}`,
@@ -383,6 +386,17 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     timeline_url: `${repoUrl}/issues/${issue.number}/timeline`,
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
+    ...(issue.is_pull_request
+      ? {
+          pull_request: {
+            url: `${repoUrl}/pulls/${issue.number}`,
+            html_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}`,
+            diff_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}.diff`,
+            patch_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}.patch`,
+            merged_at: pull?.merged_at ?? null,
+          },
+        }
+      : {}),
   };
 }
 
