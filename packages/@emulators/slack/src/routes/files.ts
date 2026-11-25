@@ -11,6 +11,7 @@ import type {
 } from "../entities.js";
 import { getSlackStore } from "../store.js";
 import {
+  findSlackThreadParent,
   formatSlackFile,
   formatSlackMessage,
   generateSlackId,
@@ -268,14 +269,17 @@ export function filesRoutes(ctx: RouteContext): void {
     async function shareFiles(channels: SlackChannel[], files: SlackFile[]) {
       const updatedFiles = [...files];
       for (const channel of channels) {
+        const ts = generateTs();
+        const parent = findSlackThreadParent(store, channel.channel_id, threadTs, ts);
         const msg = ss().messages.insert({
-          ts: generateTs(),
+          ts,
           channel_id: channel.channel_id,
           user: authUserId,
           text: initialComment,
           type: "message" as const,
           subtype: "file_share",
           thread_ts: threadTs,
+          ...(parent?.user ? { parent_user_id: parent.user } : {}),
           blocks,
           files: updatedFiles,
           upload: true,

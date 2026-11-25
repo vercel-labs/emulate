@@ -176,6 +176,27 @@ describe("Slack event payload fidelity", () => {
     expect(history.messages.find((message: any) => message.ts === parent.ts)).not.toHaveProperty("bot_id");
   });
 
+  it("sets parent_user_id on thread replies in the message event and conversations.replies", async () => {
+    const setup = setupApp();
+    const channel = getSlackStore(setup.store).channels.findOneBy("name", "events")!.channel_id;
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(setup.webhooks, ["message"]);
+
+    const root = await call(setup, "chat.postMessage", { channel, text: "Root" });
+    const reply = await call(setup, "chat.postMessage", { channel, text: "Reply", thread_ts: root.ts }, botToken);
+
+    const events = capture.jsonBodies() as Array<Record<string, any>>;
+    const replyEvent = events.map((envelope) => envelope.event).find((event: any) => event.ts === reply.ts);
+    expect(replyEvent).toMatchObject({ type: "message", thread_ts: root.ts, parent_user_id: root.message.user });
+
+    const replies = await call(setup, "conversations.replies", { channel, ts: root.ts });
+    expect(replies.messages.find((message: any) => message.ts === reply.ts)).toMatchObject({
+      thread_ts: root.ts,
+      parent_user_id: root.message.user,
+    });
+    expect(replies.messages.find((message: any) => message.ts === root.ts)).not.toHaveProperty("parent_user_id");
+  });
+
   it("uses the bot identity of OAuth-issued tokens and keeps user tokens as human posts", async () => {
     const setup = setupApp();
     const callback = await setup.app.request(`${base}/oauth/v2/authorize/callback`, {

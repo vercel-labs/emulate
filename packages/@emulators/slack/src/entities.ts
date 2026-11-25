@@ -118,6 +118,7 @@ export interface SlackMessage extends Entity {
   name?: string;
   edited?: { user: string; ts: string };
   thread_ts?: string;
+  parent_user_id?: string;
   reply_count: number;
   reply_users: string[];
   reactions: Array<{ name: string; users: string[]; count: number }>;
@@ -150,6 +151,7 @@ export interface SlackScheduledMessage extends Entity {
   client_msg_id?: string;
   reply_broadcast?: boolean;
   thread_ts?: string;
+  parent_user_id?: string;
   post_at: number;
   date_created: number;
 }

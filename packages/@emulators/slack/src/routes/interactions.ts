@@ -3,6 +3,7 @@ import type { RouteContext } from "@emulators/core";
 import type { SlackJsonObject, SlackMessage, SlackView } from "../entities.js";
 import { dispatchSlackEvent } from "../events.js";
 import {
+  findSlackThreadParent,
   formatSlackMessage,
   formatSlackView,
   generateTs,
@@ -346,9 +347,12 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
           previous_message: formatSlackMessage(source),
         });
     } else if (hasContent) {
+      const ts = generateTs();
+      const threadTs = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
+      const parent = findSlackThreadParent(store, response.channel_id, threadTs, ts);
       const message: Omit<SlackMessage, "id" | "created_at" | "updated_at"> = {
         ...rich.fields,
-        ts: generateTs(),
+        ts,
         channel_id: response.channel_id,
         user: response.bot_user_id,
         ...slackBotMessageFields(store, response.bot_id, channel.team_id, response.app_id),
@@ -359,7 +363,8 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
         reply_count: 0,
         reply_users: [],
         reactions: [],
-        ...(typeof body.thread_ts === "string" ? { thread_ts: body.thread_ts } : {}),
+        ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+        ...(parent?.user ? { parent_user_id: parent.user } : {}),
       };
       if (inChannel) {
         const inserted = ss().messages.insert(message);

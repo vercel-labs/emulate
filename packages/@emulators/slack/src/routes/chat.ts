@@ -7,6 +7,7 @@ import {
   formatSlackPermalink,
   formatSlackScheduledMessage,
   formatSlackScheduledMessageListItem,
+  findSlackThreadParent,
   generateSlackId,
   generateTs,
   getSlackConversationOpenState,
@@ -191,6 +192,7 @@ export function chatRoutes(ctx: RouteContext): void {
             .find((bot) => bot.bot_id === authToken.bot_id || bot.user_id === authUserId)
         : undefined;
     const botId = authToken?.token_type === "bot" ? (authToken.bot_id ?? bot?.bot_id) : undefined;
+    const parent = findSlackThreadParent(store, ch.channel_id, thread_ts, ts);
     const msg = ss().messages.insert({
       ts,
       interaction_app_id: messageAppId(c),
@@ -199,6 +201,7 @@ export function chatRoutes(ctx: RouteContext): void {
       text: normalizedText.text,
       type: "message" as const,
       thread_ts,
+      ...(parent?.user ? { parent_user_id: parent.user } : {}),
       ...richMessage.fields,
       ...(botId ? slackBotMessageFields(store, botId, ch.team_id, authToken?.app_id) : {}),
       reply_count: 0,
@@ -270,6 +273,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const authUserId = getAuthUserId(authUser);
 
     const ts = generateTs();
+    const parent = findSlackThreadParent(store, ch.channel_id, thread_ts, ts);
     ss().ephemeralMessages.insert({
       ts,
       interaction_app_id: messageAppId(c),
@@ -279,6 +283,7 @@ export function chatRoutes(ctx: RouteContext): void {
       text: normalizedText.text,
       type: "message" as const,
       thread_ts,
+      ...(parent?.user ? { parent_user_id: parent.user } : {}),
       ...richMessage.fields,
       reply_count: 0,
       reply_users: [],
@@ -462,6 +467,7 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
     const authUserId = getAuthUserId(authUser);
 
+    const parent = findSlackThreadParent(store, ch.channel_id, thread_ts);
     const scheduled = ss().scheduledMessages.insert({
       scheduled_message_id: generateSlackId("Q"),
       channel_id: ch.channel_id,
@@ -470,6 +476,7 @@ export function chatRoutes(ctx: RouteContext): void {
       type: "delayed_message" as const,
       subtype: "bot_message" as const,
       thread_ts,
+      ...(parent?.user ? { parent_user_id: parent.user } : {}),
       ...richMessage.fields,
       post_at: postAtSeconds,
       date_created: now,
