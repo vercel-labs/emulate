@@ -23,12 +23,19 @@ import {
   formatRepo,
   formatUser,
   generateNodeId,
-  generateSha,
   getNextIssueNumber,
   lookupRepo,
   timestamp,
+  type PullRequestLive,
 } from "../helpers.js";
-import { findOrCreateCommit } from "../git-helpers.js";
+import {
+  diffTrees,
+  findCommitBySha,
+  findMergeBase,
+  findOrCreateCommit,
+  formatFileDiff,
+  listAncestors,
+} from "../git-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -144,6 +151,65 @@ function walkCommitsToBase(gh: GitHubStore, repo: GitHubRepo, headSha: string, b
     cur = commit.parent_shas[0];
   }
   return out.reverse();
+}
+
+/** The tip of the pull request's head branch, which moves with every commit pushed to it. */
+function liveHeadSha(gh: GitHubStore, pr: GitHubPullRequest): string {
+  if (pr.merged) return pr.head_sha;
+  const headRepo = gh.repos.get(pr.head_repo_id);
+  if (!headRepo) return pr.head_sha;
+  const branch = gh.branches.findBy("repo_id", headRepo.id).find((b) => b.name === pr.head_ref);
+  return branch?.sha ?? pr.head_sha;
+}
+
+/** The tip of the base branch, which decides the merge base for the pull request's diff. */
+function liveBaseSha(gh: GitHubStore, pr: GitHubPullRequest): string {
+  const baseRepo = gh.repos.get(pr.base_repo_id);
+  if (!baseRepo) return pr.base_sha;
+  const branch = gh.branches.findBy("repo_id", baseRepo.id).find((b) => b.name === pr.base_ref);
+  return branch?.sha ?? pr.base_sha;
+}
+
+/** Commits reachable from the head but not from the merge base, oldest first, as GitHub lists them. */
+function commitsInPull(gh: GitHubStore, pr: GitHubPullRequest): GitHubCommit[] {
+  const headRepo = gh.repos.get(pr.head_repo_id);
+  if (!headRepo) return [];
+  const headSha = liveHeadSha(gh, pr);
+  if (!findCommitBySha(gh, headRepo.id, headSha)) return [];
+  const mergeBase = findMergeBase(gh, headRepo.id, liveBaseSha(gh, pr), headSha);
+  if (!mergeBase) return [];
+  const baseAncestors = new Set(listAncestors(gh, headRepo.id, mergeBase.sha).map((commit) => commit.sha));
+  return listAncestors(gh, headRepo.id, headSha)
+    .filter((commit) => !baseAncestors.has(commit.sha))
+    .reverse();
+}
+
+/** The three-dot diff GitHub shows for a pull request: merge base tree to live head tree. */
+function filesInPull(gh: GitHubStore, pr: GitHubPullRequest): ReturnType<typeof diffTrees> {
+  const headRepo = gh.repos.get(pr.head_repo_id);
+  if (!headRepo) return [];
+  const headSha = liveHeadSha(gh, pr);
+  const headCommit = findCommitBySha(gh, headRepo.id, headSha);
+  if (!headCommit) return [];
+  const mergeBase = findMergeBase(gh, headRepo.id, liveBaseSha(gh, pr), headSha);
+  if (!mergeBase) return [];
+  return diffTrees(gh, headRepo.id, mergeBase.tree_sha, headCommit.tree_sha);
+}
+
+function pullLive(gh: GitHubStore, pr: GitHubPullRequest): PullRequestLive | undefined {
+  if (pr.merged) return undefined;
+  const headSha = liveHeadSha(gh, pr);
+  const headRepo = gh.repos.get(pr.head_repo_id);
+  if (!headRepo || !findCommitBySha(gh, headRepo.id, headSha)) return undefined;
+  const commits = commitsInPull(gh, pr);
+  const files = filesInPull(gh, pr);
+  return {
+    headSha,
+    commits: Math.max(1, commits.length),
+    additions: files.reduce((sum, file) => sum + file.additions, 0),
+    deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    changedFiles: files.length,
+  };
 }
 
 function insertCommit(
@@ -356,7 +422,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const start = (page - 1) * per_page;
     const pageItems = list.slice(start, start + per_page);
     const body = pageItems
-      .map((p) => formatPullRequest(p, gh, baseUrl))
+      .map((p) => formatPullRequest(p, gh, baseUrl, pullLive(gh, p)))
       .filter((x): x is NonNullable<typeof x> => x !== null);
     return c.json(body);
   });
@@ -459,10 +525,20 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     } as Omit<GitHubPullRequest, "id" | "created_at" | "updated_at">);
     gh.pullRequests.update(prRow.id, { node_id: generateNodeId("PullRequest", prRow.id) });
 
+    const live = pullLive(gh, gh.pullRequests.get(prRow.id)!);
+    if (live) {
+      gh.pullRequests.update(prRow.id, {
+        commits: live.commits,
+        additions: live.additions,
+        deletions: live.deletions,
+        changed_files: live.changedFiles,
+      });
+    }
+
     adjustRepoOpenIssues(gh, repo.id, 1);
 
     const pr = gh.pullRequests.get(prRow.id)!;
-    const prFmt = formatPullRequest(pr, gh, baseUrl)!;
+    const prFmt = formatPullRequest(pr, gh, baseUrl, pullLive(gh, pr))!;
     const ownerLogin = ownerLoginOf(gh, repo);
 
     webhooks.dispatch(
@@ -494,7 +570,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const fmt = formatPullRequest(pr, gh, baseUrl);
+    const fmt = formatPullRequest(pr, gh, baseUrl, pullLive(gh, pr));
     if (!fmt) throw notFoundResponse();
     return c.json(fmt);
   });
@@ -564,7 +640,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     }
 
     const fresh = gh.pullRequests.get(pr.id)!;
-    const prFmt = formatPullRequest(fresh, gh, baseUrl)!;
+    const prFmt = formatPullRequest(fresh, gh, baseUrl, pullLive(gh, fresh))!;
     const ownerLogin = ownerLoginOf(gh, repo);
 
     if (body.state === "closed" && pr.state === "open") {
@@ -621,13 +697,19 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
-    const pr = findPull(gh, repo.id, pullNumber);
+    let pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
     if (pr.merged || pr.state === "closed") {
       throw new ApiError(422, "Pull Request is not mergeable");
     }
     if (pr.draft) {
       throw new ApiError(422, "Draft pull requests cannot be merged.");
+    }
+
+    const liveHead = liveHeadSha(gh, pr);
+    const liveBase = liveBaseSha(gh, pr);
+    if (liveHead !== pr.head_sha || liveBase !== pr.base_sha) {
+      pr = gh.pullRequests.update(pr.id, { head_sha: liveHead, base_sha: liveBase }) ?? pr;
     }
 
     const body = await parseJsonBody(c);
@@ -754,7 +836,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const headRepo = gh.repos.get(pr.head_repo_id);
     if (!headRepo) throw notFoundResponse();
 
-    const chain = walkCommitsToBase(gh, headRepo, pr.head_sha, pr.base_sha);
+    const chain = commitsInPull(gh, pr);
     const { page, per_page } = parsePagination(c);
     const total = chain.length;
     setLinkHeader(c, total, page, per_page);
@@ -777,28 +859,17 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
+    const headSha = liveHeadSha(gh, pr);
+    const files = filesInPull(gh, pr);
+    const mergeBase = findMergeBase(gh, repo.id, liveBaseSha(gh, pr), headSha);
+
     const { page, per_page } = parsePagination(c);
-    const n = pr.changed_files;
-    const stubNames = Array.from({ length: n }, (_, i) => `file${i + 1}.ts`);
-    const total = stubNames.length;
+    const total = files.length;
     setLinkHeader(c, total, page, per_page);
     const start = (page - 1) * per_page;
-    const pageNames = stubNames.slice(start, start + per_page);
+    const pageFiles = files.slice(start, start + per_page);
 
-    return c.json(
-      pageNames.map((filename, i) => ({
-        sha: generateSha(),
-        filename,
-        status: "modified",
-        additions: 1,
-        deletions: 0,
-        changes: 1,
-        blob_url: `${baseUrl}/${repo.full_name}/blob/${pr.head_sha}/${filename}`,
-        raw_url: `${baseUrl}/${repo.full_name}/raw/${pr.head_sha}/${filename}`,
-        contents_url: `${baseUrl}/repos/${repo.full_name}/contents/${encodeURIComponent(filename)}?ref=${pr.head_ref}`,
-        patch: "",
-      })),
-    );
+    return c.json(pageFiles.map((file) => formatFileDiff(file, repo, mergeBase?.sha ?? null, headSha, baseUrl)));
   });
 
   app.post("/repos/:owner/:repo/pulls/:pull_number/requested_reviewers", async (c) => {
@@ -840,7 +911,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
     gh.pullRequests.update(pr.id, { requested_reviewer_ids, requested_team_ids });
     const fresh = gh.pullRequests.get(pr.id)!;
-    const prFmt = formatPullRequest(fresh, gh, baseUrl)!;
+    const prFmt = formatPullRequest(fresh, gh, baseUrl, pullLive(gh, fresh))!;
     const ownerLogin = ownerLoginOf(gh, repo);
 
     webhooks.dispatch(
@@ -895,7 +966,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
     gh.pullRequests.update(pr.id, { requested_reviewer_ids, requested_team_ids });
     const fresh = gh.pullRequests.get(pr.id)!;
-    return c.json(formatPullRequest(fresh, gh, baseUrl)!);
+    return c.json(formatPullRequest(fresh, gh, baseUrl, pullLive(gh, fresh))!);
   });
 
   app.put("/repos/:owner/:repo/pulls/:pull_number/update-branch", async (c) => {

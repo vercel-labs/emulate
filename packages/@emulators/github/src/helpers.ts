@@ -8,6 +8,7 @@ import type {
   GitHubLabel,
   GitHubMilestone,
   GitHubComment,
+  GitHubReaction,
   GitHubRelease,
   GitHubTeam,
   GitHubBranch,
@@ -352,6 +353,9 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
 
   const milestone = issue.milestone_id ? store.milestones.get(issue.milestone_id) : null;
   const closedBy = issue.closed_by_id ? store.users.get(issue.closed_by_id) : null;
+  const pull = issue.is_pull_request
+    ? store.pullRequests.findBy("repo_id", issue.repo_id).find((candidate) => candidate.number === issue.number)
+    : undefined;
 
   return {
     url: `${repoUrl}/issues/${issue.number}`,
@@ -379,14 +383,40 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     closed_at: issue.closed_at,
     closed_by: closedBy ? formatUser(closedBy, baseUrl) : null,
     body: issue.body,
-    reactions: defaultReactions(`${repoUrl}/issues/${issue.number}`),
+    reactions: reactionRollup(store, { repoId: issue.repo_id, issueNumber: issue.number }, `${repoUrl}/issues/${issue.number}`),
     timeline_url: `${repoUrl}/issues/${issue.number}/timeline`,
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
+    // GitHub's issues endpoints return pull requests too, marked with these links.
+    ...(issue.is_pull_request
+      ? {
+          pull_request: {
+            url: `${repoUrl}/pulls/${issue.number}`,
+            html_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}`,
+            diff_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}.diff`,
+            patch_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}.patch`,
+            merged_at: pull?.merged_at ?? null,
+          },
+        }
+      : {}),
   };
 }
 
-export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, baseUrl: string) {
+/** What the head branch holds now: a pull request follows commits pushed after it opened. */
+export interface PullRequestLive {
+  headSha: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+}
+
+export function formatPullRequest(
+  pr: GitHubPullRequest,
+  store: GitHubStore,
+  baseUrl: string,
+  live?: PullRequestLive,
+) {
   const repo = store.repos.get(pr.repo_id);
   if (!repo) return null;
   const user = store.users.get(pr.user_id);
@@ -416,6 +446,7 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
 
   const milestone = pr.milestone_id ? store.milestones.get(pr.milestone_id) : null;
   const mergedBy = pr.merged_by_id ? store.users.get(pr.merged_by_id) : null;
+  const headSha = live?.headSha ?? pr.head_sha;
 
   return {
     url: `${repoUrl}/pulls/${pr.number}`,
@@ -447,11 +478,11 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
     review_comments_url: `${repoUrl}/pulls/${pr.number}/comments`,
     review_comment_url: `${repoUrl}/pulls/comments{/number}`,
     comments_url: `${repoUrl}/issues/${pr.number}/comments`,
-    statuses_url: `${repoUrl}/statuses/${pr.head_sha}`,
+    statuses_url: `${repoUrl}/statuses/${headSha}`,
     head: {
       label: `${headRepo?.full_name?.split("/")[0] ?? "unknown"}:${pr.head_ref}`,
       ref: pr.head_ref,
-      sha: pr.head_sha,
+      sha: headSha,
       user: headRepo ? formatOwner(store, headRepo.owner_id, headRepo.owner_type, baseUrl) : null,
       repo: headRepo ? formatRepo(headRepo, store, baseUrl) : null,
     },
@@ -470,7 +501,7 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
       review_comments: { href: `${repoUrl}/pulls/${pr.number}/comments` },
       review_comment: { href: `${repoUrl}/pulls/comments{/number}` },
       commits: { href: `${repoUrl}/pulls/${pr.number}/commits` },
-      statuses: { href: `${repoUrl}/statuses/${pr.head_sha}` },
+      statuses: { href: `${repoUrl}/statuses/${headSha}` },
     },
     author_association: computeAuthorAssociation(store, pr.user_id, pr.repo_id),
     auto_merge: pr.auto_merge,
@@ -481,11 +512,12 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
     merged_by: mergedBy ? formatUser(mergedBy, baseUrl) : null,
     comments: pr.comments,
     review_comments: pr.review_comments,
+    reactions: reactionRollup(store, { repoId: pr.repo_id, issueNumber: pr.number }, `${repoUrl}/issues/${pr.number}`),
     maintainer_can_modify: true,
-    commits: pr.commits,
-    additions: pr.additions,
-    deletions: pr.deletions,
-    changed_files: pr.changed_files,
+    commits: live?.commits ?? pr.commits,
+    additions: live?.additions ?? pr.additions,
+    deletions: live?.deletions ?? pr.deletions,
+    changed_files: live?.changedFiles ?? pr.changed_files,
   };
 }
 
@@ -541,7 +573,7 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
       updated_at: comment.updated_at,
       author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
       body: comment.body,
-      reactions: defaultReactions(`${repoUrl}/issues/comments/${comment.id}`),
+      reactions: reactionRollup(store, { repoId: comment.repo_id, commentId: comment.id }, `${repoUrl}/issues/comments/${comment.id}`),
       performed_via_github_app: null,
     };
   }
@@ -565,7 +597,7 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
       created_at: comment.created_at,
       updated_at: comment.updated_at,
       author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
-      reactions: defaultReactions(`${repoUrl}/pulls/comments/${comment.id}`),
+      reactions: reactionRollup(store, { repoId: comment.repo_id, commentId: comment.id }, `${repoUrl}/pulls/comments/${comment.id}`),
       line: comment.line,
       side: comment.side ?? "RIGHT",
       subject_type: comment.subject_type ?? "line",
@@ -587,7 +619,7 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
     created_at: comment.created_at,
     updated_at: comment.updated_at,
     author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
-    reactions: defaultReactions(`${repoUrl}/comments/${comment.id}`),
+    reactions: reactionRollup(store, { repoId: comment.repo_id, commentId: comment.id }, `${repoUrl}/comments/${comment.id}`),
   };
 }
 
@@ -719,8 +751,17 @@ export function formatWebhook(wh: GitHubWebhook, baseUrl: string, ownerPath: str
   };
 }
 
-function defaultReactions(url: string) {
-  return {
+export const REACTION_CONTENTS = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"] as const;
+
+export type ReactionContent = (typeof REACTION_CONTENTS)[number];
+
+/** The reactions summary GitHub puts on issues, pull requests, and comments. */
+export function reactionRollup(
+  store: GitHubStore,
+  subject: { repoId: number; issueNumber?: number; commentId?: number },
+  url: string,
+) {
+  const counts = {
     url: `${url}/reactions`,
     total_count: 0,
     "+1": 0,
@@ -731,6 +772,24 @@ function defaultReactions(url: string) {
     heart: 0,
     rocket: 0,
     eyes: 0,
+  };
+  for (const reaction of store.reactions.findBy("repo_id", subject.repoId)) {
+    if (subject.issueNumber !== undefined && reaction.issue_number !== subject.issueNumber) continue;
+    if (subject.commentId !== undefined && reaction.comment_id !== subject.commentId) continue;
+    counts[reaction.content] += 1;
+    counts.total_count += 1;
+  }
+  return counts;
+}
+
+export function formatReaction(reaction: GitHubReaction, store: GitHubStore, baseUrl: string) {
+  const user = store.users.get(reaction.user_id);
+  return {
+    id: reaction.id,
+    node_id: reaction.node_id,
+    user: user ? formatUser(user, baseUrl) : null,
+    content: reaction.content,
+    created_at: reaction.created_at,
   };
 }
 

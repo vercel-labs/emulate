@@ -241,6 +241,37 @@ export function listAncestors(gh: GitHubStore, repoId: number, headSha: string):
   return out;
 }
 
+function ancestorDistances(gh: GitHubStore, repoId: number, startSha: string): Map<string, number> {
+  const distances = new Map<string, number>();
+  const queue: Array<{ sha: string; distance: number }> = [{ sha: startSha, distance: 0 }];
+  for (let i = 0; i < queue.length; i++) {
+    const { sha, distance } = queue[i]!;
+    const known = distances.get(sha);
+    if (known !== undefined && known <= distance) continue;
+    distances.set(sha, distance);
+    const commit = findCommitBySha(gh, repoId, sha);
+    if (!commit) continue;
+    for (const parent of commit.parent_shas) queue.push({ sha: parent, distance: distance + 1 });
+  }
+  return distances;
+}
+
+/** The best common ancestor of two commits, the base a three-dot comparison and a pull request diff from. */
+export function findMergeBase(
+  gh: GitHubStore,
+  repoId: number,
+  baseSha: string,
+  headSha: string,
+): GitHubCommit | undefined {
+  const fromBase = ancestorDistances(gh, repoId, baseSha);
+  const fromHead = ancestorDistances(gh, repoId, headSha);
+  return [...fromBase.keys()]
+    .filter((sha) => fromHead.has(sha))
+    .map((sha) => ({ commit: findCommitBySha(gh, repoId, sha), score: fromBase.get(sha)! + fromHead.get(sha)! }))
+    .filter((candidate): candidate is { commit: GitHubCommit; score: number } => candidate.commit !== undefined)
+    .sort((a, b) => a.score - b.score || b.commit.id - a.commit.id)[0]?.commit;
+}
+
 export function blobText(gh: GitHubStore, repoId: number, sha: string): string | null {
   const blob = gh.blobs.findBy("repo_id", repoId).find((b) => b.sha === sha);
   if (!blob) return null;
