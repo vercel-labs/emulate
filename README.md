@@ -31,12 +31,15 @@ All services listen on IPv4 loopback (`127.0.0.1`) by default. No config file ne
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
+- **AI** on `http://localhost:4014`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
 Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` when `slack.signing_secret` is configured. The signature is an HMAC-SHA256 over `v0:<timestamp>:<raw-body>`; configure the receiver with the same secret and verify against the unparsed request body. Existing event subscriptions remain unsigned when the secret is absent or empty.
 
 Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks. Optional `resend.allowlist` restrictions let tests reject recipients while `resend.send_attempts` records accepted and rejected sends.
+
+The AI service answers OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini generateContent requests with deterministic, rule-driven replies, so apps using the `openai` SDK, the Anthropic SDK, `@google/genai`, the Vercel AI SDK, or an OpenAI-compatible gateway can be tested offline without keys. It covers text, streaming, structured output, tool loops, reasoning, refusals, stored responses, errors, disconnects, and stalls. The OpenAI Images API (also used by xAI) returns real, deterministic image files for generations and edits, scripted by `task: image` rules. OpenAI speech, transcription, and Chat Completions audio, plus ElevenLabs speech and transcription, return real audio files and timed transcripts. OpenAI, xAI, and Veo (Gemini API and Vertex AI) video jobs run through an explicit, poll-driven state machine and serve real H.264 MP4s. Decision models (OpenAI, Gemini, TypeSafe Jev, OpenRouter, and Perplexity) answer typed questions with deterministic probabilities. The AI SDK's default Vercel AI Gateway provider works for every modality, and Chat Completions image output (`message.images`) works as AI Gateway and OpenRouter return it.
 
 ## Custom emulators
 
@@ -253,11 +256,11 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'ai'` |
 | `port` | `4000` | Port for the HTTP server |
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://<listening host>:<port>`, with `localhost` for loopback and wildcard hosts. |
 
 Use `hostname: '0.0.0.0'` to allow connections from containers or other machines, and `baseUrl` to advertise a URL reachable by those clients.
 
@@ -541,6 +544,11 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+  kms:
+    keys:
+      - key_id: 1234abcd-12ab-34cd-56ef-1234567890ab
+        description: App data key
+        aliases: [alias/my-app-key]
 
 okta:
   users:
@@ -645,6 +653,36 @@ twilio:
   conversations:
     services:
       - friendly_name: Local Conversations
+
+ai:
+  strict: false
+  timing:
+    ttftMs: 0
+    chunkDelayMs: 0
+  models: [gpt-x]
+  rules:
+    - id: weather-call
+      match: { textContains: weather, tool: get_weather, hasToolResult: false }
+      times: 1
+      reply:
+        - type: tool_call
+          name: get_weather
+          arguments: { city: Paris }
+
+    - id: weather-result
+      match: { hasToolResult: true }
+      reply:
+        - type: text
+          text: The temperature in Paris is 20 C.
+
+    - id: rate-limit-once
+      match: { textContains: retry }
+      times: 1
+      error:
+        status: 429
+        message: Injected rate limit. Retry this request.
+        headers:
+          retry-after: "1"
 ```
 
 GitHub organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, while `admin` creates an organization administrator. Unknown users are ignored. Seeded memberships use the synthetic `members` team and grant private organization repository access.
@@ -1019,6 +1057,8 @@ Set `slack.signing_secret` in seed config to sign every outbound event subscript
 
 Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
 
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` accept `markdown_text` in place of `text`. The emulator stores the Markdown source as the message `text` and adds no blocks, since Slack doesn't document how it reads such a message back. Sending `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`, and an empty `markdown_text` counts as no text. Slack's 12,000-character limit for `markdown_text` is not enforced.
+
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
 - `POST /api/auth.revoke` - revoke the calling token (`test=1` checks without revoking); later Web API calls with it return `invalid_auth`. Revoking a bot token keeps the app installed but deactivates the bot user and removes it from its channels, so it gets no more `app_mention` events until the app is installed again
@@ -1230,14 +1270,14 @@ The emulator sends deliveries from its own host and accepts any API key, so this
 
 ## Linear API
 
-Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when webhooks are configured.
+Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, `Linear-Timestamp`, and `Linear-Signature` headers when webhooks are configured.
 
 ### GraphQL
 
 - `POST /graphql` - GraphQL endpoint for queries and mutations
 - `GET /graphql` - query-string GraphQL endpoint for tooling
-- Queries: `viewer`, `organization`, `users`, `user`, `teams`, `team`, `workflowStates`, `workflowState`, `issues`, `issue`, `comments`, `comment`, `issueLabels`, `issueLabel`, `projects`, `project`, `cycles`, `cycle`, `webhooks`, `webhook`, `agentSessions`, `agentSession`
-- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentActivityCreate`
+- Queries: `viewer`, `organization`, `users`, `user`, `teams`, `team`, `workflowStates`, `workflowState`, `issues`, `issue`, `comments`, `comment`, `issueLabels`, `issueLabel`, `projects`, `project`, `cycles`, `cycle`, `webhooks`, `webhook`, `agentSessions`, `agentSession`, `agentActivities`, `agentActivity`
+- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentSessionUpdateExternalUrl`, `agentActivityCreate`
 
 Issue selections expose both numeric `priority` and Linear's derived `priorityLabel` values: `No priority`, `Urgent`, `High`, `Medium`, and `Low`.
 
@@ -1250,6 +1290,10 @@ Issue selections expose both numeric `priority` and Linear's derived `priorityLa
 
 OAuth app `actor` config is authoritative. Apps configured with `actor: user` use authorization code flows. Apps configured with `actor: app` use the app install flow and can request client credentials tokens.
 
+### Agent Sessions
+
+Agent sessions follow Linear's Agent Interaction API, so `@linear/sdk` agent code runs against the emulator with an app actor token. `agentActivityCreate` takes `AgentActivityCreateInput` (`agentSessionId`, a typed `content` object, `ephemeral`, `signal`, `signalMetadata`) and validates it as Linear does. `AgentActivity.content` is the `AgentActivityContent` union, and session `status` follows the latest activity. `agentSessionUpdate` sets plans, summaries, and external links. Webhooks subscribed to `AgentSessionEvent` receive `created` events with `promptContext` and `prompted` events with the prompt activity, in Linear's `AgentSessionEventWebhookPayload` shape. A human token can create `prompt` activities to simulate user messages. The earlier flat input `{ sessionId, type, body }` still works.
+
 ### Webhooks And Inspector
 
 - `webhookCreate` / `webhookDelete` manage local webhook subscriptions
@@ -1257,7 +1301,7 @@ OAuth app `actor` config is authoritative. Apps configured with `actor: user` us
 
 Linear scope checks are relaxed by default so local tests can use simple bearer tokens or the seeded `lin_test_admin` token. Set `linear.strict_scopes: true` in seed config to require `read`, `write`, `issues:create`, `comments:create`, or `admin` on supported GraphQL operations.
 
-Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and production agent behavior are not implemented. Agent support is a focused local-test subset.
+Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, archiving agent sessions and activities, session dismissal by users, agent guidance, repository suggestions, and routing `AgentSessionEvent` webhooks to the owning app alone are not implemented.
 
 ## Twilio API
 
@@ -1318,6 +1362,199 @@ To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then ca
 
 Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
 
+## AI API
+
+Deterministic OpenAI Responses, Chat Completions, and Anthropic Messages emulation. Replies are scripted by rules, not generated by a model, so the same request returns the same answer on every run. Text, streaming, structured output, tool loops, reasoning, refusals, stored responses, errors, mid-stream disconnects, and stalls are all available on demand, offline and without keys.
+
+### Base URL
+
+```bash
+npx emulate start --service ai --port 4014
+```
+
+A single selected service otherwise uses the base port, normally 4000. In an all-services run, `ai` listens on port 4014. Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged. Every generation response carries a deterministic request id: `x-request-id` on the OpenAI routes and `request-id` on the Anthropic Messages route.
+
+### Clients
+
+The official OpenAI SDK reads `OPENAI_BASE_URL`, or you can pass the base URL explicitly:
+
+```typescript
+import OpenAI from 'openai'
+
+const openai = new OpenAI({
+  baseURL: 'http://localhost:4014/v1',
+  apiKey: 'test',
+})
+
+const chat = await openai.chat.completions.create({
+  model: 'gpt-x',
+  messages: [{ role: 'user', content: 'Hi' }],
+})
+
+const response = await openai.responses.create({
+  model: 'gpt-x',
+  input: 'Hi',
+})
+```
+
+The Vercel AI SDK uses the standard OpenAI provider. `openai(...)` posts to `/responses`; `openai.chat(...)` posts to `/chat/completions`:
+
+```typescript
+import { createOpenAI } from '@ai-sdk/openai'
+import { generateText } from 'ai'
+
+const openai = createOpenAI({
+  baseURL: 'http://localhost:4014/v1',
+  apiKey: 'test',
+})
+
+const responses = await generateText({
+  model: openai('anthropic/claude-sonnet-5'),
+  prompt: 'Hi',
+})
+
+const chat = await generateText({
+  model: openai.chat('gpt-x'),
+  prompt: 'Hi',
+})
+```
+
+`@ai-sdk/openai-compatible` works in Chat mode against the same base URL. Vercel AI Gateway's OpenAI-compatible `/v1` surface works through either provider, and any model slug is accepted and echoed back. `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check: set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule. Code that passes plain model strings goes through `@ai-sdk/gateway`, whose protocol the emulator also serves for text, images, speech, transcription, video, and decisions:
+
+```typescript
+import { createGateway, generateText } from 'ai'
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: 'http://localhost:4014/v4/ai', apiKey: 'test' })
+
+const result = await generateText({ model: 'anthropic/claude-sonnet-5', prompt: 'Hi' })
+```
+
+### Data routes
+
+- `POST /v1/chat/completions` - Chat Completions, unary or streamed
+- `POST /v1/responses` - Responses, unary or streamed
+- `POST /v1/messages` - Anthropic Messages, unary or streamed
+- `GET /v1/responses/{id}` - retrieve a stored response
+- `DELETE /v1/responses/{id}` - delete a stored response
+- `GET /v1/models` - list configured and previously requested model ids
+
+An unsupported data path such as `/v1/embeddings` returns the native 404 naming the supported paths.
+
+### Rules
+
+Rules live under `ai.rules` in seed config or are replaced at runtime. They are evaluated in order and the first match wins. Every supplied matcher must hold. `times` is a per-rule budget consumed on every selection, including injected errors, so an exhausted rule is skipped.
+
+```yaml
+ai:
+  strict: false
+  timing:
+    ttftMs: 0
+    chunkDelayMs: 0
+  models: [gpt-x]
+  rules:
+    - id: weather-call
+      match:
+        textContains: weather
+        tool: get_weather
+        hasToolResult: false
+      times: 1
+      reply:
+        - type: tool_call
+          name: get_weather
+          arguments:
+            city: Paris
+
+    - id: weather-result
+      match:
+        hasToolResult: true
+      reply:
+        - type: text
+          text: The temperature in Paris is 20 C.
+
+    - id: rate-limit-once
+      match: { textContains: retry }
+      times: 1
+      error:
+        status: 429
+        message: Injected rate limit. Retry this request.
+        headers:
+          retry-after: "1"
+```
+
+In a project config with a `services:` map, the seed goes under `services.<name>.seed`, not a top-level `ai:` block, which would start a second service named `ai`:
+
+```yaml
+services:
+  llm:
+    emulator: ai
+    seed: { rules: [{ id: weather, match: { textContains: weather }, reply: [{ type: text, text: Sunny }] }] }
+```
+
+Matchers are `model` (with `*` wildcards), `format` (`openai-chat`, `openai-responses`, or `anthropic-messages`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment, including one returned inside a tool result, or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (a Responses summary or a Messages `thinking` block; Chat has no field for it), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
+
+Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default to zero, so replies are instant. `ttftMs` is the wait before the first byte of any reply, streamed or not, and `chunkDelayMs` is the gap between the frames of a stream. Delays are abortable: a client close or reset cancels pending timers.
+
+Request limits apply to every reply, scripted or default. A stop sequence (`stop` on Chat Completions) cuts the reply text at the first match; the sequence is not returned, nothing after it is sent, and the reply ends with `stop`. On Messages, `stop_sequences` works the same way, and the reply reports `stop_reason: "stop_sequence"` with the match in `stop_sequence`. A token cap (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) counts output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`, which Responses reports as `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. On Messages, `max_tokens` is the cap, and a reply over it ends with `stop_reason: "max_tokens"`. A rule's own `finish` still wins when it is set.
+
+### Defaults and strict mode
+
+With no matching rule, the service echoes the latest user text, returns a deterministic schema-valid object when a schema was requested, returns `{}` for JSON mode without a schema, generates a call when a tool is forced, acknowledges a tool result or an attachment-only request, and accepts and echoes any model id.
+
+Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), and local `$ref`, with recursion bounded. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that subset returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule. A format sample, `enum` value, or `const` that fails the pattern returns the same 400, and pattern checks run under a time limit.
+
+Set `ai.strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and as a JSON body for the rules endpoint.
+
+### Stored responses and the call record
+
+Responses are stored by default so multi-turn sessions and item references resolve. Set `store: false` to skip storage. Unknown `previous_response_id` and item references are treated as empty context, so a request still succeeds. A function call with no matching `function_call_output` returns OpenAI's 400, `No tool output found for function call <id>.`, unless the history it refers to is missing.
+
+Every generation request is recorded with its format, model, `matched`, normalized prompt and tool arguments, and outcome. `matched` is `{ "id": "<rule id>", "remaining": <budget left or null>, "rule": <the rule as it was when it answered> }` for a rule, `{ "default": "<kind>" }` when a default answered, and `null` when strict mode rejected the request. The last 500 calls are kept. Stored responses are capped at the most recent 1000; older ones are evicted. Keys, auth headers, and file bytes are never recorded. Attachment metadata records the name, media type, size, and hash only.
+
+### Control routes and inspector
+
+All control routes and the inspector are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback. The AI service also checks the request's own host, so a website whose name is rebound to this machine cannot read it: it answers only on loopback names, IP addresses, and the host of its base URL, and any other name gets 403. To allow another name, such as a Docker service name, start with `--base-url http://<host>:<port>`. When embedded through `createEmulateHandler`, set `publicUrl` to the public origin.
+
+- `GET /_ai/calls` - recorded calls
+- `DELETE /_ai/calls` - clear the call record
+- `GET /_ai/rules` - active rules with remaining budgets
+- `PUT /_ai/rules` - replace the active rules without restarting
+- `POST /_ai/reset` - restore seeded rules and budgets, and clear calls and stored responses
+- `GET /` - read-only inspector with Calls and Rules tabs
+
+`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "random": { "seed": <number> }, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited), in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
+
+```bash
+curl -s http://localhost:4014/_ai/calls | jq
+
+curl -X PUT http://localhost:4014/_ai/rules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rules": [
+      {
+        "id": "hello",
+        "match": { "textContains": "Hi" },
+        "reply": [{ "type": "text", "text": "Hello from emulate." }]
+      }
+    ]
+  }'
+```
+
+An invalid replacement returns 400 with the failing path and leaves the previous rules active. `PUT` replaces the whole runtime config, so include `strict`, `timing`, `random`, and `models` in the body to keep them; a body with only `rules` resets them to their defaults, and a reset seed changes the order of seeded variants. Every replacement also restores each rule's full `times` budget. Runtime replacements are ephemeral: reset restores the seeded rules.
+
+### Refusals, attachments, and limits
+
+A refusal rule produces OpenAI's native refusal shape only when a rule asks for one. The AI SDK cannot parse it: `@ai-sdk/openai` 3.x and 4.x reject a native Responses refusal part in non-streaming mode with a parse error and drop it when streaming, and Chat parsing omits `refusal`. Test native refusal handling with the official `openai` SDK; for app behavior through the AI SDK, script the same user-visible content as `text`.
+
+Attachments are input only. The emulator never reads their contents to produce an answer; rules decide the reply. Inline bytes are hashed, measured, and dropped. Responses accepts `input_file` with inline data, a URL, or a file id, plus `input_image`. Chat accepts `file` parts with inline data or a file id, and `image_url`; Chat files must be PDFs and Chat does not accept file URLs. Malformed inline data returns a native 400. The AI SDK validates attachments before sending, so `@ai-sdk/openai` rejects `text/plain` and other non-PDF, non-image files client-side unless `passThroughUnsupportedFiles` is set.
+
+On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
+
+On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`. Messages errors use Anthropic's envelope, and a validation error starts with the failing field, as in `max_tokens: Expected a number.` Unsupported paths under `/v1/messages`, such as `count_tokens`, and any request with an `anthropic-version` header get a `not_found_error` in the same envelope.
+
+Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+
+Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1355,7 +1592,7 @@ grant_type=refresh_token"
 
 ## AWS
 
-S3, SQS, Cognito, IAM, and STS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query.
+S3, SQS, Cognito, IAM, STS, and KMS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query; KMS uses AWS JSON 1.1.
 
 ### S3
 
@@ -1457,7 +1694,19 @@ SRP, MFA, external identity providers, Lambda triggers, pool/client management A
 
 ### STS
 All operations via `POST /sts/` with `Action` parameter:
-- `GetCallerIdentity`, `AssumeRole`
+- `GetCallerIdentity`, `AssumeRole`, `AssumeRoleWithWebIdentity`
+
+`AssumeRoleWithWebIdentity` exchanges an OpenID Connect ID token for temporary credentials. The request needs no signature or `Authorization` header, so `STSClient` works with the `/sts` endpoint and no credentials. The role must exist: seed it with `aws.iam.roles` or create it with `CreateRole`. An unknown role ARN returns `AccessDenied` (403). The token's `iss`, `sub`, and `aud` claims become `Provider`, `SubjectFromWebIdentityToken`, and `Audience`. A token that is not a JWT returns `InvalidIdentityToken`, and a token whose `exp` has passed returns `ExpiredToken`. With `ProviderId`, the token is treated as an opaque OAuth 2.0 access token. `DurationSeconds` defaults to 3600 and accepts 900 through 43200. Token signatures, IAM OIDC providers, role trust policies, session policies, and the role's maximum session duration are not evaluated.
+
+### KMS
+KMS accepts AWS JSON 1.1 requests at `POST /kms/` with `Content-Type: application/x-amz-json-1.1` and `X-Amz-Target: TrentService.<Action>`, returning JSON results and `__type` errors. Use `KMSClient` with endpoint `/kms`.
+- `CreateKey`, `DescribeKey`, `ListKeys`, `Encrypt`, `Decrypt`
+
+Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config, and seeding an alias that already points at another key, such as `alias/emulate-default`, fails at startup. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
+
+### External backend
+
+Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint, such as [AWS Emulator](https://github.com/aws/aws-emulator) started with `--auth off`. The URL cannot include credentials: URLs with userinfo are rejected at startup. Cognito and the inspector stay local, and clients keep using the emulator's port and path prefixes. Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start; a failed seed is retried on the next forwarded request. See the [AWS docs](https://emulate.dev/aws#external-backend).
 
 ## Next.js Integration
 
@@ -1683,6 +1932,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     linear/         # Linear GraphQL API, OAuth, webhooks
     twilio/         # Twilio Messaging, Verify, Voice, webhooks
+    ai/             # OpenAI Responses, Chat Completions, and Anthropic Messages
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1711,6 +1961,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
 
 **Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
+
+**AI**: OpenAI-compatible clients accept any API key, or none. Keys are never required, stored, or logged. Control routes and the inspector are same-origin only. Data routes refuse browser pages from other websites.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

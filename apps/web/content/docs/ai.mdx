@@ -1,0 +1,490 @@
+---
+title: "AI Responses"
+navTitle: "AI"
+---
+
+OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini emulation, plus image, audio, video, and decision APIs, for CI and offline sandboxes. It is not a model: rules and deterministic defaults decide every reply, so text, structured output, tool calls, reasoning, refusals, media files, job progress, errors, and stream timing repeat exactly on every run.
+
+```bash
+npx emulate start --service ai --port 4014
+```
+
+Examples on this page use port 4014, the port AI gets when all services start. A sole AI service without `--port` starts on 4000.
+
+## Clients
+
+Point any OpenAI client at `http://localhost:4014/v1`. Any API key and any model id work, including `provider/model` slugs, and the reply echoes the model.
+
+```typescript
+import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
+import { createOpenAI } from "@ai-sdk/openai";
+
+const client = new OpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
+const anthropic = new Anthropic({ apiKey: "test", baseURL: "http://localhost:4014" });
+
+const openai = createOpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
+openai("anthropic/claude-sonnet-5");
+openai.chat("anthropic/claude-sonnet-5");
+```
+
+The Anthropic SDK adds `/v1/messages` itself, so give it the origin without `/v1`.
+
+- `openai(model)` uses Responses; `openai.chat(model)` uses Chat Completions.
+- `createOpenAICompatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`, or it sends `json_object` without a schema and the `{}` default fails its schema check.
+- To replace Vercel AI Gateway's OpenAI-compatible API, swap `https://ai-gateway.vercel.sh/v1` for the emulator URL, or set `OPENAI_BASE_URL`. For AI SDK code that passes plain model strings, see [AI Gateway](#ai-gateway).
+- Keys are never validated, stored, or logged. Some SDKs still need a placeholder.
+- Every generation response carries a deterministic request id: `x-request-id` on the OpenAI and Gemini routes and `request-id` on the Anthropic Messages route.
+- Point `@google/genai` at the origin with `httpOptions.baseUrl`, and `@ai-sdk/google` at `http://localhost:4014/v1beta`.
+
+## Routes
+
+The format is read from the end of the path, so any prefix works (`/v1`, `/api/v1`).
+
+- `POST .../responses` — OpenAI Responses, unary and streamed
+- `POST .../chat/completions` — OpenAI Chat Completions, unary and streamed
+- `POST .../messages` — Anthropic Messages, unary and streamed
+- `POST .../models/:model:generateContent` and `:streamGenerateContent` — Gemini, with text, image, and speech output
+- `GET .../responses/:id` — retrieve a stored response
+- `DELETE .../responses/:id` — delete a stored response
+- `GET .../models` — configured and previously requested models, in OpenAI's list shape
+- `POST .../images/generations` — OpenAI and xAI image generation, unary and streamed
+- `POST .../images/edits` — OpenAI and xAI image edits, multipart or JSON, unary and streamed
+- `POST .../audio/speech` — OpenAI text to speech, as a file or as server-sent events
+- `POST .../audio/transcriptions` — OpenAI speech to text, unary and streamed
+- `POST .../audio/translations` — OpenAI speech translation to English
+- `POST /v1/text-to-speech/:voice_id` — ElevenLabs text to speech, also at `/stream` and `/with-timestamps`
+- `POST /v1/speech-to-text` — ElevenLabs speech to text
+- `POST .../videos`, `GET .../videos`, `GET` or `DELETE .../videos/:id`, `GET .../videos/:id/content`, `POST .../videos/:id/remix`, `POST .../videos/edits`, `POST .../videos/extensions` — OpenAI video jobs
+- `POST .../videos/generations` and `GET .../videos/:request_id` — xAI video jobs
+- `POST .../models/:model:predictLongRunning`, `GET .../operations/:id`, `GET .../files/:id:download` — Gemini API Veo
+- `POST .../publishers/google/models/:model:predictLongRunning` and `POST .../:fetchPredictOperation` — Vertex AI Veo
+- `POST .../decisions` — OpenAI, Gemini API, and Perplexity decision models, told apart by the body
+- `POST .../systemone` — TypeSafe Jev decisions
+- `POST /api/alpha/decisions` — OpenRouter decisions
+- `POST .../language-model`, `.../image-model`, `.../speech-model`, `.../transcription-model`, `.../video-model`, `.../video-model/start`, `.../video-model/status`, `.../decision-model` — the AI Gateway protocol `@ai-sdk/gateway` speaks
+- `GET /` — inspector
+
+Other paths return the native OpenAI 404 naming the supported paths.
+
+### Messages
+
+The Messages route speaks Anthropic's wire format, not OpenAI's: `system` is a top-level field, `max_tokens` is required, content is a list of blocks (`text`, `image`, `document`, `search_result`, `tool_use`, `tool_result`). An image or document `url` source must be an HTTP or HTTPS URL. Replies use `stop_reason` (`end_turn`, `tool_use`, `max_tokens`, `stop_sequence`, `refusal`; a `content_filter` finish also maps to `refusal`) and content blocks, and a stream sends `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop`. Tool arguments stream as `input_json_delta` pieces of partial JSON. On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`. Messages errors use Anthropic's envelope, and a validation error starts with the failing field, as in `max_tokens: Expected a number.` Unsupported paths under `/v1/messages`, such as `count_tokens`, and any request with an `anthropic-version` header get a `not_found_error` in the same envelope.
+
+Structured output arrives in `output_config.format` and comes back as a text block holding JSON. Errors use Anthropic's envelope, `{"type":"error","error":{"type":"invalid_request_error","message":"..."},"request_id":"..."}`, and keep Anthropic's error types: `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, and `overloaded_error`. Anthropic's schema limits apply, so `oneOf`, numeric and string constraints, and external references return a 400.
+
+Rules, variants, timing, faults, and the inspector work the same way; match on `format: anthropic-messages` to target this route alone.
+
+### Gemini
+
+`POST /v1beta/models/:model:generateContent` and `:streamGenerateContent` (also under `/v1`) speak the Gemini API, so `@google/genai` and `@ai-sdk/google` work with `baseUrl` (or `baseURL` ending in `/v1beta`) pointed at the emulator. The model comes from the path. `contents` (`text`, `inlineData`, `fileData`, `functionCall`, and `functionResponse` parts), `systemInstruction`, `tools` with `functionDeclarations`, `toolConfig` (`AUTO`, `ANY`, `NONE`), and `generationConfig` (`maxOutputTokens`, `stopSequences`, `responseMimeType` with `responseSchema` or `responseJsonSchema`, and `thinkingConfig.includeThoughts`) map onto the same rules and defaults as the other text routes. Function calls carry a `thoughtSignature`, as Gemini 3 models return. A stream sends one `GenerateContentResponse` per `data:` event and puts `finishReason` and `usageMetadata` on the last one. Field names may be camelCase or snake_case, as the Gemini API accepts both. Errors use Google's envelope, `{"error":{"code":400,"message":"...","status":"INVALID_ARGUMENT"}}`.
+
+`generationConfig.responseModalities` picks the task. `IMAGE` (alone or with `TEXT`) is an image request answered with `inlineData` PNG parts sized by `imageConfig.aspectRatio` and `imageSize` (`512`, `1K` by default, `2K`, or `4K`); image rules may add `text` events, which come back as text parts. `AUDIO` is a speech request answered with raw 24 kHz 16-bit audio labelled `audio/L16;codec=pcm;rate=24000`, or the format `responseFormat.audio.mimeType` asks for (`AUDIO_WAV`, `AUDIO_MP3`, `AUDIO_OGG_OPUS`, `AUDIO_ALAW`, `AUDIO_MULAW`). Match `format: gemini` to target these routes. The Interactions API (`/v1beta/interactions`) is not served.
+
+### AI Gateway
+
+The AI SDK sends plain model strings such as `"openai/gpt-5.5"` to Vercel AI Gateway through `@ai-sdk/gateway`. The emulator serves that protocol, so point the default provider at it and the same code runs offline across every modality:
+
+```typescript
+import { createGateway, generateText } from "ai";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: "http://localhost:4014/v4/ai", apiKey: "test" });
+
+await generateText({ model: "anthropic/claude-sonnet-5", prompt: "Hi" });
+```
+
+The model id comes from the `ai-model-id` header (`ai-language-model-id` for text), and every route matches `format: gateway` with the usual `task`. Text, streaming, structured output, tool loops, reasoning, and files share the rules and defaults of the other text routes; results carry `providerMetadata.gateway` with routing, a zero `cost`, and a `generationId`. `generateImage` returns PNGs sized by `size` or `aspectRatio` (long side 1024). `generateSpeech` returns `mp3` by default or `wav`, `pcm`, `flac`, `opus`, or `aac`, and reports any other `outputFormat` as a warning. `transcribe` returns timed segments and words. `generateVideo` returns base64 MP4s in one server-sent event, or, with `poll`, starts a job that each status read moves through the same state machine as the other video routes; a `video_error` event fails it. `decide` answers `boolean`, `choice`, and `score` questions. Errors use the gateway envelope, `{"error":{"message":"...","type":"rate_limit_exceeded"},"generationId":"..."}`, which the client turns into typed errors such as `GatewayRateLimitError`; set `error.type` for types like `model_not_found` or `quota_for_entity_exceeded`. Streaming speech, transcription, and realtime use WebSockets and are not served.
+
+Chat Completions requests with `"image"` in `modalities`, as AI Gateway and OpenRouter accept for image models, are image requests answered with `message.images` (`delta.images` when streaming) holding `data:` URL PNGs sized by `image_config.aspect_ratio` and `image_size`. Image rules may add `text` events, which come back as `content`.
+
+### Images
+
+`POST .../images/generations` and `POST .../images/edits` speak the OpenAI Images API, which xAI's image endpoints share. Generations take JSON. Edits take multipart uploads (`image`, repeated `image` or `image[]`, and an optional `mask`), OpenAI's JSON `images` list of `image_url` or `file_id` references, or xAI's JSON `image` and `images` URL objects.
+
+Every image is a real, decodable file at the requested size: `png` (the default), `jpeg`, `webp`, `gif`, or `svg` from `output_format`. `size` takes `auto` (1024x1024) or `WIDTHxHEIGHT` with both sides divisible by 16, each at most 3840, and an aspect ratio within 3:1; xAI's `aspect_ratio` sizes the long side at 1024, or 2048 with `resolution: 2k`. With no matching rule each image is a solid color derived from the prompt, the input files, and its position, so the same request returns the same bytes and `n` images differ from one another. `background: transparent` renders a translucent image and is rejected with `jpeg` and `svg`. Replies carry `b64_json`, or a `data:` URL in `url` when `response_format: url`, plus `created`, `background`, `output_format`, `quality`, `size`, and deterministic token `usage`. `stream: true` sends `partial_image_index` events for each of `partial_images` (0 to 3) and then a `completed` event per image, named `image_generation.*` for generations and `image_edit.*` for edits.
+
+Image rules set `match.task: image`, so text rules never answer an image request and image rules never answer a chat:
+
+```yaml
+ai:
+  rules:
+    - id: logo
+      match: { task: image, textContains: logo }
+      reply:
+        - type: image
+          data: iVBORw0KGgo... # base64 file bytes, returned verbatim
+          revisedPrompt: A minimal fox logo
+    - id: image-quota
+      match: { task: image, textContains: quota }
+      error: { status: 429, message: Image quota exceeded. }
+```
+
+An `image` event without `data` renders the generated image. With `n` above the number of events, the events repeat in order. Errors, `times`, `variants`, `timing`, and `strict` behave as they do for text, and a strict miss suggests an image rule.
+
+### Audio
+
+`POST .../audio/speech` speaks the OpenAI speech API. It returns a real, decodable clip in `response_format` (`mp3` by default, `opus` in Ogg, `aac` in ADTS, `flac`, `wav`, or raw 24 kHz 16-bit `pcm`) with the matching `Content-Type`. The clip is silent and lasts about one second per fifteen characters of `input`, divided by `speed`, from half a second up to ten minutes. `stream_format: sse` sends `speech.audio.delta` events carrying base64 chunks and a final `speech.audio.done` with usage. `instructions` and `stream_format: sse` are rejected for `tts-1` and `tts-1-hd`, as the real API does.
+
+`POST .../audio/transcriptions` and `POST .../audio/translations` take multipart uploads (`file`, `model`, and the optional fields both the `openai` SDK and `@ai-sdk/openai` send). Each `response_format` has its real shape: `json`, `text`, `srt`, `vtt`, `verbose_json` with `segments` and, when `timestamp_granularities` asks for them, `words`, and `diarized_json` with speaker segments. The formats a model accepts follow OpenAI's rules, so `gpt-4o-transcribe` accepts only `json`. The duration comes from a WAV header, or is estimated at 128 kbit/s for other files, and word timings are spread across it in proportion to word length. `stream: true` on a non-Whisper model sends `transcript.text.delta` events and `transcript.text.done`. `include[]=logprobs` adds per-word log probabilities. With no matching rule the transcript is `This is a deterministic transcript of <file name>.`
+
+ElevenLabs is served at `POST /v1/text-to-speech/{voice_id}` (plus `/stream` and `/with-timestamps`) and `POST /v1/speech-to-text`. `output_format` sets the codec and sample rate, as in `mp3_44100_128`, `pcm_24000`, `wav_16000`, `ulaw_8000`, `alaw_8000`, or `opus_48000_64`; rates ElevenLabs does not offer for a codec are rejected with 422. `/with-timestamps` returns `audio_base64` with character alignment. Speech to text returns `text` with timed `words` and `spacing` entries, plus `speaker_id` when `diarize` is set. Invalid bodies return 422 with ElevenLabs' `detail` envelope.
+
+Chat Completions speaks replies when the request sets `modalities: ["text", "audio"]` and `audio: { voice, format }`. The message then carries `audio` with an `id`, base64 `data` in the requested format, `expires_at`, and the reply text as `transcript`, and `content` is `null`. A stream sends the transcript in `delta.audio.transcript` pieces, then the audio in `delta.audio.data` pieces, then `delta.audio.expires_at`. `input_audio` content parts (`wav` or `mp3`) are accepted as attachments, so `match.file: audio/*` selects them.
+
+Speech rules set `match.task: speech` and reply with `{ type: audio, data }` to return exact bytes. Transcription rules set `match.task: transcription` and reply with `text` events, which become the transcript:
+
+```yaml
+ai:
+  rules:
+    - id: greeting
+      match: { task: speech, textContains: welcome }
+      reply:
+        - type: audio
+          data: UklGRiQAAABXQVZF... # base64, returned verbatim
+    - id: call-notes
+      match: { task: transcription, file: audio/wav }
+      reply:
+        - type: text
+          text: Customer asked about the refund. Agent approved it.
+```
+
+### Video
+
+Video generation is asynchronous, so each request creates a job that moves through an explicit state machine: `queued`, then `in_progress`, then `completed` or `failed`. A job advances only when a client reads its status, which keeps polling deterministic: each of the first `polls` reads (one by default) reports `in_progress` with rising `progress`, and the next read settles the job. Completed and failed jobs never change again. A completed job's video is a real H.264 MP4 at the job's size and duration, a uniform gray frame at 24 fps.
+
+| Provider   | Start                                                                                                                                            | Poll                                                         | Result                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| OpenAI     | `POST .../videos` (JSON or multipart with `input_reference`), `POST .../videos/:id/remix`, `POST .../videos/edits`, `POST .../videos/extensions` | `GET .../videos/:id`, with `openai-poll-after-ms`            | `GET .../videos/:id/content` with `variant` `video`, `thumbnail` (WebP), or `spritesheet` (JPEG) |
+| xAI        | `POST .../videos/generations`, returning `request_id`                                                                                            | `GET .../videos/:request_id`: `pending`, `done`, or `failed` | `video.url` on the emulator's own origin                                                         |
+| Gemini API | `POST /v1beta/models/:model:predictLongRunning`, returning `models/:model/operations/:id`                                                        | `GET /v1beta/models/:model/operations/:id`                   | `generatedSamples[].video.uri`, downloaded from `GET /v1beta/files/:id:download`                 |
+| Vertex AI  | `POST .../publishers/google/models/:model:predictLongRunning`                                                                                    | `POST .../models/:model:fetchPredictOperation`               | `videos[].bytesBase64Encoded`, or `gcsUri` under `parameters.storageUri`                         |
+
+OpenAI lists jobs at `GET .../videos` with `after`, `limit`, and `order`, and deletes completed or failed jobs with `DELETE .../videos/:id`. Content, remixes, edits, and extensions need a completed job, and deleting a running job is refused. xAI requests take `duration` from 1 to 15 seconds, `aspect_ratio` (`16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `3:2`, or `2:3`), and `resolution` (`480p` or `720p`). Veo requests take `sampleCount` (or `numberOfVideos`) from 1 to 4, `durationSeconds`, `aspectRatio` (`16:9` or `9:16`), and `resolution` (`720p`, `1080p`, or `4k`). A pending Veo operation omits `done`, as Google's does.
+
+Video rules set `match.task: video`. A `video` event can supply exact MP4 bytes as base64 `data` and a `polls` count. A `video_error` event fails the job with its `code` and `message` after its `polls`. An `error` rule rejects the start request itself:
+
+```yaml
+ai:
+  rules:
+    - id: blocked
+      match: { task: video, textContains: violence }
+      reply:
+        - type: video_error
+          code: moderation_blocked
+          message: The prompt was blocked by moderation.
+          polls: 2
+    - id: slow-render
+      match: { task: video }
+      reply:
+        - type: video
+          polls: 5
+```
+
+The AI SDK refuses to download video URLs on `localhost`. With `experimental_generateVideo` and a URL-returning provider (xAI, Gemini API Veo), pass a `download` function that fetches the URL. Vertex AI returns bytes and needs no `download`.
+
+### Decisions
+
+Decision models answer typed questions about an input with probabilities instead of text. Every provider's wire format is served:
+
+| Provider           | Route                                         | Shape                                                                                                                                |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| OpenAI (and Azure) | `POST .../decisions` with a `questions` array | `input` plus `predicate`, `choice` (`choices`), and `score` (`levels`) questions; `answers` come back as an array in question order  |
+| Gemini API         | `POST .../decisions` with `input` and a map   | `noul`, `choice`, and `score` questions keyed by id; choice options are evaluated in sorted order; `noul` answers carry `confidence` |
+| TypeSafe Jev       | `POST .../systemone`                          | `state` plus `noul`, `choice`, `score`, and `box` questions keyed by id; zstd-compressed bodies and multipart requests are accepted  |
+| OpenRouter         | `POST /api/alpha/decisions`                   | The TypeSafe shape, plus an `id`, `provider`, `usage.cost`, and `refusal` answers                                                    |
+| Perplexity         | `POST .../decisions` with `state` and a map   | The TypeSafe shape with `locate` questions; unknown top-level fields are rejected                                                    |
+
+`/decisions` is shared, so the body picks the format: a `questions` array is OpenAI, `state` is Perplexity, and `input` with a question map is Gemini. Each provider's limits apply, such as 1 to 400 OpenAI questions with 2 to 255 choices and 2 to 10 levels, and errors use each provider's envelope: OpenAI's, Google's, TypeSafe's 422 `detail` list, and OpenRouter's `error.code`.
+
+With no matching rule, answers are deterministic per question and input. Probabilities have two decimals and sum to one, the choice is the most likely option, a score is the probability-weighted level, and a legend echoes the levels. Confidence follows each provider's formula. Decision rules set `match.task: decision` and reply with a `decision` event whose `answers` are keyed by question id (an OpenAI question's `name`, or its position when unnamed):
+
+```yaml
+ai:
+  rules:
+    - id: triage
+      match: { task: decision, textContains: refund }
+      reply:
+        - type: decision
+          answers:
+            is_refund: 0.97 # boolean question: a probability
+            team: billing # choice question: the chosen option
+            urgency: 1.5 # score question: a level, split across its neighbours
+            channel: { email: 0.7, phone: 0.3 } # explicit probabilities
+            policy: null # a refusal, on OpenAI and OpenRouter
+```
+
+Questions a rule does not answer get the deterministic default.
+
+## Rules
+
+Rules come from the `ai` seed block or `PUT /_ai/rules`. They are checked in order and the first match answers. This pair drives a two-step tool loop:
+
+```yaml
+ai:
+  rules:
+    - id: weather-call
+      match:
+        textContains: weather
+        tool: get_weather
+        hasToolResult: false
+      times: 1
+      reply:
+        - type: tool_call
+          name: get_weather
+          arguments:
+            city: Paris
+
+    - id: weather-result
+      match:
+        hasToolResult: true
+      reply:
+        - type: text
+          text: The temperature is 20 C.
+```
+
+In a project config with a `services:` map, the seed goes under `services.<name>.seed`, not a top-level `ai:` block, which would start a second service named `ai`:
+
+```yaml
+services:
+  llm:
+    emulator: ai
+    seed: { rules: [{ id: weather, match: { textContains: weather }, reply: [{ type: text, text: Sunny }] }] }
+```
+
+### Rule fields
+
+| Field      | What it does                                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`       | Names the rule in the call record, the inspector, and `/_ai/rules`                                                                                       |
+| `match`    | Conditions the request must meet; omit it to match everything                                                                                            |
+| `times`    | How many times the rule can answer; omit it for unlimited                                                                                                |
+| `reply`    | The events to send back                                                                                                                                  |
+| `variants` | Bodies the seed picks from, one per matching call; each may override `finish`, `timing`, and `fault`                                                     |
+| `finish`   | Overrides the finish reason; the rule-level value is the default for its variants                                                                        |
+| `error`    | Returns an HTTP error instead of a reply                                                                                                                 |
+| `fault`    | Stalls or cuts a streamed reply partway through; the rule-level value is the default for its variants                                                    |
+| `timing`   | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing; `chunkDelayMs` also takes a list, and the rule-level value is the default for its variants |
+
+A rule has one of `reply`, `variants`, or `error`. `finish`, `timing`, and `fault` apply only to `reply` and `variants`, and `fault` needs `match.stream: true`. Inside `variants`, each variant overrides the rule-level `finish`, `timing`, and `fault`. SDK retries spend the next variant.
+
+`times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until `POST /_ai/reset` or a `PUT /_ai/rules` replaces the rules; both restore every rule's full budget.
+
+### Matching
+
+Every condition in `match` must hold.
+
+| Matcher         | Matches when                                                                                                                                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | The request asks for `text` (the default when omitted), `image`, `speech`, `transcription`, `video`, or `decision`                                                                                                                                                                                      |
+| `model`         | The model id matches; `*` wildcards allowed                                                                                                                                                                                                                                                             |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, `perplexity-decisions`, or `gateway` |
+| `stream`        | The request does or does not stream                                                                                                                                                                                                                                                                     |
+| `textContains`  | The latest user text contains the string; tool results are ignored                                                                                                                                                                                                                                      |
+| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                                                                                                                                                                                             |
+| `hasToolResult` | The current turn does or does not carry a tool result                                                                                                                                                                                                                                                   |
+| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type                                                                                                                                                                    |
+
+### Replies
+
+`reply` is a list of events. The service adds ids, usage, and the format's terminal events.
+
+| Event         | Fields                              | Sends                                                                                                                                         |
+| ------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`        | `text`                              | Assistant text                                                                                                                                |
+| `object`      | `value`                             | A JSON value for structured output                                                                                                            |
+| `tool_call`   | `name`, `arguments`, optional `id`  | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted            |
+| `reasoning`   | `text`                              | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                                |
+| `refusal`     | `text`                              | A refusal in the format's native shape                                                                                                        |
+| `image`       | optional `data`, `revisedPrompt`    | An image for `task: image` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders the image                |
+| `audio`       | optional `data`                     | Speech for `task: speech` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders silence                   |
+| `video`       | optional `data`, `polls`            | Completes a `task: video` job after `polls` status reads (default 1); `data` is base64 MP4 bytes, and without it the emulator renders a clip  |
+| `video_error` | `code`, `message`, optional `polls` | Fails a `task: video` job with that error after `polls` status reads                                                                          |
+| `decision`    | `answers`                           | Answers for a `task: decision` rule, keyed by question id: a probability, an option, a score, explicit probabilities, or `null` for a refusal |
+
+Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
+
+Request limits apply to every reply, scripted or default:
+
+- Stop sequences (`stop` on Chat Completions) cut the reply text at the first match. The sequence itself is not returned, nothing after it is sent, and the reply ends with `stop`. On Messages, `stop_sequences` works the same way, and the reply reports `stop_reason: "stop_sequence"` with the match in `stop_sequence`.
+- Token caps (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) count output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`. On Responses that is `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. On Messages, `max_tokens` is the cap, and a reply over it ends with `stop_reason: "max_tokens"`.
+- A rule's own `finish` still wins when it is set.
+
+### Errors and faults
+
+```yaml
+ai:
+  rules:
+    - id: rate-limit-once
+      match:
+        textContains: "[retry]"
+      times: 1
+      error:
+        status: 429
+        message: Slow down.
+        headers:
+          retry-after: "1"
+
+    - id: stall
+      match:
+        textContains: "[stall]"
+        stream: true
+      reply:
+        - type: text
+          text: partial answer
+      fault:
+        afterChunks: 2
+        kind: stall
+        stallMs: 30000
+```
+
+| Field                                     | What it does                                                |
+| ----------------------------------------- | ----------------------------------------------------------- |
+| `error.status`                            | HTTP status from 400 to 599                                 |
+| `error.message`                           | Error message in the native error body                      |
+| `error.type`, `error.code`, `error.param` | Optional native error fields                                |
+| `error.headers`                           | Response headers, such as `retry-after`                     |
+| `fault.kind`                              | `stall` pauses the stream; `disconnect` cuts the connection |
+| `fault.afterChunks`                       | Text or tool-argument deltas to send first                  |
+| `fault.stallMs`                           | How long a stall lasts                                      |
+
+A fault needs `match.stream: true`. The call record shows the fault and whether delivery completed, failed, or the client aborted.
+
+## Defaults and strict mode
+
+With no matching rule:
+
+| Request                    | Reply                                            |
+| -------------------------- | ------------------------------------------------ |
+| Plain text                 | The latest user text, echoed                     |
+| Attachments only           | `Received N files (...)`                         |
+| JSON mode without a schema | `{}`                                             |
+| A JSON schema              | A schema-valid object, identical every run       |
+| A forced tool choice       | A call with arguments built from the tool schema |
+| A tool result              | `Received the result of <tool>.`                 |
+
+A strict JSON Schema is checked against OpenAI's documented subset before anything is generated, and a rejected keyword returns OpenAI's own error:
+
+```json
+{
+  "error": {
+    "message": "Invalid schema for response_format 'trip': In context=('properties', 'trip'), 'allOf' is not permitted.",
+    "type": "invalid_request_error",
+    "param": "response_format",
+    "code": null
+  }
+}
+```
+
+Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. An object that does not set `additionalProperties: false`, or leaves a property out of `required`, is rejected the same way. A function tool marked `strict` gets the same checks on its parameters, worded `Invalid schema for function '<name>'` with code `invalid_function_parameters`. Non-strict schemas are not checked, matching the API.
+
+The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), string `format` values for the common formats, and local `$ref`. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule. A format sample, `enum` value, or `const` that fails the pattern returns the same 400, and pattern checks run under a time limit.
+
+Provider rules differ, so the dialect is chosen per request: a model name starting with `claude`, with or without a provider prefix such as `anthropic/`, is checked with Anthropic's rules, anything else with OpenAI's, on Chat Completions and Responses alike. The error envelope stays the one the endpoint speaks, which is what Anthropic's OpenAI compatibility layer does: same shape, different message.
+
+Anthropic is stricter about the request shape: `response_format` must be `json_schema` with `strict: true`, and `json_object` returns a 400. Its schema rules also reject `oneOf`, numeric and string constraints, array constraints beyond `minItems` 0 or 1, and external references.
+
+Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
+
+Replies are instant by default. Set `ai.timing.ttftMs` for the delay before the first byte of any reply, streamed or not, and `ai.timing.chunkDelayMs` for the gap between the frames of a stream. `chunkDelayMs` also takes a list, used in frame order with the last entry repeating, so a reply can start fast, slow down, and speed up again.
+
+Streamed structured output is split between JSON structural characters, never inside a string, so a client can parse partial values as they arrive.
+
+### Variants
+
+Give a rule `variants` instead of `reply` to vary the answer per call:
+
+```yaml
+ai:
+  random:
+    seed: 7
+  rules:
+    - id: tone
+      match:
+        textContains: hello
+      variants:
+        - reply:
+            - type: text
+              text: Morning.
+        - reply:
+            - type: text
+              text: Hey there.
+        - reply:
+            - type: text
+              text: Hello.
+```
+
+A variant can carry `error` instead of `reply`, so a test meets a 429 on some calls and a normal reply on others.
+
+Each variant may also override `finish`, `timing`, and `fault`, so one rule covers the same content delivered different ways:
+
+```yaml
+- id: flaky-answer
+  match:
+    textContains: flaky
+  variants:
+    - reply:
+        - type: text
+          text: A complete answer.
+    - reply:
+        - type: text
+          text: An answer that stops early.
+      finish: length
+    - reply:
+        - type: text
+          text: An answer that streams slowly.
+      timing:
+        ttftMs: 400
+        chunkDelayMs: 120
+```
+
+The seed shuffles the variants per rule and calls walk that order in a cycle, so every variant appears once before any repeat. The same seed and call order always produce the same sequence, and a different seed changes the order. Each rule counts its own matches since startup, reset, or a rules update, so requests answered by other rules do not shift its order.
+
+## State
+
+### Stored responses
+
+Responses are stored by default so multi-turn AI SDK sessions work. `previous_response_id` and `item_reference` inputs resolve before rules run. `@ai-sdk/openai` 3.x resends earlier turns as item references; 4.x sends tool-call history inline. Both work.
+
+- An unknown id continues with empty context and is recorded as unresolved.
+- A function call with no matching `function_call_output` returns OpenAI's 400, `No tool output found for function call <id>.`, unless the history it refers to is missing.
+- `store: false` keeps nothing; the id later returns 404. The call is still recorded.
+- Deleting returns the native deleted object; a second delete returns 404.
+- Reset clears stored responses.
+
+### Control routes
+
+- `GET /_ai/calls` — call records as a bare array, oldest first
+- `DELETE /_ai/calls` — clear calls; returns `{ "deleted": n }`
+- `GET /_ai/rules` — active rules, each with `remaining` (`null` is unlimited), plus `strict`, `timing`, and `models`
+- `PUT /_ai/rules` — replace the runtime config
+- `POST /_ai/reset` — restore seeded rules and budgets, clear calls and stored responses; returns `{ "reset": true }`
+
+```bash
+curl http://localhost:4014/_ai/rules > rules.json
+curl -X PUT http://localhost:4014/_ai/rules \
+  -H 'content-type: application/json' --data @rules.json
+```
+
+`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. Every replacement restores each rule's full `times` budget. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
+
+Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback. The AI service also checks the request's own host, so a website whose name is rebound to this machine cannot read it: it answers only on loopback names, IP addresses, and the host of its base URL, and any other name gets 403. To allow another name, such as a Docker service name, start with `--base-url http://<host>:<port>`. When embedded through `createEmulateHandler`, set `publicUrl` to the public origin.
+
+### Inspector and call record
+
+Open `http://localhost:4014/` to browse calls and rules with their remaining budgets.
+
+Each call record keeps the format, path, model, normalized messages, tools, references, `matched`, a reply summary, status, fault, and delivery, for the last 500 generation requests. Stored responses are capped at the most recent 1000; older ones are evicted. `matched` is `{ id, remaining, rule }` for a rule, `{ default }` for a default, and `null` for a strict-mode miss.
+
+Prompts and tool arguments are recorded. API keys, auth headers, URL credentials, and file bytes are not; attachments keep only name, media type, size, and SHA-256.
+
+## Limits
+
+- The Vercel AI SDK cannot parse native refusals. Script refusal-like content as `text`, or use the `openai` SDK.
+- Chat Completions carries no reasoning text, only reasoning tokens in usage, and omits OpenRouter's `reasoning` extensions.
+- The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
+- On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input and output on Responses, and legacy functions.
+- Paths with no route return the native 404 naming the supported paths: the Gemini Interactions API, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
+- Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
+- Usage numbers are deterministic estimates.
+
+An unknown key in the `ai` seed block fails startup with its path. See [Configuration](/docs/configuration) for the file format.

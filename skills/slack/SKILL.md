@@ -225,6 +225,8 @@ curl -X POST http://localhost:4003/api/auth.revoke \
 
 `chat.postEphemeral` stores ephemeral messages outside channel history. `chat.scheduleMessage`, `chat.deleteScheduledMessage`, and `chat.scheduledMessages.list` keep scheduled messages pending until deleted or inspected.
 
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` accept `markdown_text` in place of `text`. The emulator stores the Markdown source as the message `text` and adds no blocks, since Slack doesn't document how it reads such a message back. Sending `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`, and an empty `markdown_text` counts as no text. Slack's 12,000-character limit for `markdown_text` is not enforced.
+
 ```bash
 # Post message
 curl -X POST http://localhost:4003/api/chat.postMessage \
@@ -243,6 +245,12 @@ curl -X POST http://localhost:4003/api/chat.postMessage \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "text": "Deploy complete", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*Deploy* complete"}}], "metadata": {"event_type": "deploy_complete", "event_payload": {"deploy_id": "dep_123"}}, "unfurl_links": false}'
+
+# Post Markdown text
+curl -X POST http://localhost:4003/api/chat.postMessage \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "markdown_text": "**Deploy** finished\n\n- api: ok"}'
 
 # Update message
 curl -X POST http://localhost:4003/api/chat.update \

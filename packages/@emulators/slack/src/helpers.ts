@@ -413,6 +413,22 @@ export function parseSlackRichMessageFields(body: Record<string, unknown>): Slac
   return { fields, providedFields };
 }
 
+/**
+ * Reads the message text from `text`, or from `markdown_text`, which Slack accepts in place of
+ * `text` and `blocks` and rejects alongside either with markdown_text_conflict. `text` is
+ * undefined when the request sets neither.
+ */
+export function parseSlackMessageText(
+  body: Record<string, unknown>,
+  fields: SlackRichMessageFields,
+): { text?: string; error?: string } {
+  const text = typeof body.text === "string" ? body.text : undefined;
+  const markdownText = typeof body.markdown_text === "string" ? body.markdown_text : "";
+  if (!markdownText) return { text };
+  if (text || (fields.blocks?.length ?? 0) > 0) return { error: "markdown_text_conflict" };
+  return { text: markdownText };
+}
+
 export function hasSlackMessageContent(text: string, fields: SlackRichMessageFields): boolean {
   return text.length > 0 || (fields.blocks?.length ?? 0) > 0 || (fields.attachments?.length ?? 0) > 0;
 }

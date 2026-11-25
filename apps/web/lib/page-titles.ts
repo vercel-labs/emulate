@@ -1,5 +1,5 @@
 export const PAGE_TITLES: Record<string, string> = {
-  "": "Local API Emulation\nfor CI and Sandboxes",
+  "": "API emulators for local dev, CI and sandboxes",
   "programmatic-api": "Programmatic API",
   "custom-emulators": "Custom Emulators",
   configuration: "Configuration",
@@ -18,6 +18,7 @@ export const PAGE_TITLES: Record<string, string> = {
   mongoatlas: "MongoDB Atlas",
   resend: "Resend",
   stripe: "Stripe",
+  ai: "AI Responses",
   authentication: "Authentication",
   architecture: "Architecture",
 };

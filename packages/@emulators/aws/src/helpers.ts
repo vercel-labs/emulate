@@ -76,3 +76,33 @@ export function parseQueryString(body: string): Record<string, string> {
   }
   return result;
 }
+
+// AWS validates request members together and reports every failed constraint
+// in one message, for example "1 validation error detected: Value null at
+// 'roleArn' failed to satisfy constraint: Member must not be null".
+export function validationErrorMessage(failures: string[]): string {
+  const count = failures.length === 1 ? "1 validation error" : `${failures.length} validation errors`;
+  return `${count} detected: ${failures.join("; ")}`;
+}
+
+// Records a required-member or length failure. Sensitive members and binary
+// blobs are reported without their value, as AWS does.
+export function checkMemberLength(
+  failures: string[],
+  member: string,
+  value: string | Buffer | undefined,
+  min: number,
+  max: number,
+  sensitive = false,
+): void {
+  if (value === undefined) {
+    failures.push(`Value null at '${member}' failed to satisfy constraint: Member must not be null`);
+    return;
+  }
+  const subject = sensitive || typeof value !== "string" ? `Value at '${member}'` : `Value '${value}' at '${member}'`;
+  if (value.length < min) {
+    failures.push(`${subject} failed to satisfy constraint: Member must have length greater than or equal to ${min}`);
+  } else if (value.length > max) {
+    failures.push(`${subject} failed to satisfy constraint: Member must have length less than or equal to ${max}`);
+  }
+}

@@ -19,6 +19,7 @@ export {
   HonoRequest,
   cors,
   serve,
+  assertPortFree,
   type ContentfulStatusCode,
   type CorsOptions,
   type ErrorHandler,
@@ -28,7 +29,7 @@ export {
   type Next,
   type ServeOptions,
 } from "./http.js";
-export { type ServicePlugin, type RouteContext } from "./plugin.js";
+export { type ServicePlugin, type RouteContext, type RegisterOptions } from "./plugin.js";
 export {
   WebhookDispatcher,
   type WebhookSubscription,
@@ -70,6 +71,7 @@ export {
   renderErrorPage,
   renderSettingsPage,
   renderInspectorPage,
+  renderJsonDetails,
   renderFormPostPage,
   renderCheckoutPage,
   renderUserButton,

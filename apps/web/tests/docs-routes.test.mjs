@@ -38,7 +38,11 @@ for (const [path, expected] of Object.entries(pages)) {
     assert.equal(decode(html.match(/<title>([^<]*)<\/title>/)?.[1] ?? ""), expected.title);
     assert.equal(meta(html, "description"), expected.description);
     assert.equal(meta(html, "og:title"), expected.ogTitle);
-    assert.equal(meta(html, "og:image"), `${origin}${expected.ogImage}`);
+    const ogImage = new URL(meta(html, "og:image"), origin);
+    assert.equal(ogImage.origin, origin);
+    assert.equal(ogImage.pathname, expected.ogImage);
+    assert.match(ogImage.searchParams.get("v") ?? "", /^[0-9a-f]{8}$/);
+    assert.equal(meta(html, "twitter:image"), ogImage.href);
     assert.equal(link(html, "canonical"), path === "/" ? origin : `${origin}${path}`);
     assert.equal(meta(html, "robots"), noindex ? "noindex, nofollow" : "index, follow");
     const body = text(html);
