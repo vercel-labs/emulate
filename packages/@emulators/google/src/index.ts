@@ -21,9 +21,11 @@ import { settingsRoutes } from "./routes/settings.js";
 import { threadRoutes } from "./routes/threads.js";
 import { getGoogleStore } from "./store.js";
 import { googleAuthMiddleware } from "./auth.js";
+import { seedServiceAccounts, type GoogleSeedDelegation, type GoogleSeedServiceAccount } from "./service-accounts.js";
 
 export { getGoogleStore, type GoogleStore } from "./store.js";
 export * from "./entities.js";
+export type { GoogleSeedDelegation, GoogleSeedServiceAccount } from "./service-accounts.js";
 
 export interface GoogleSeedUser {
   email: string;
@@ -128,6 +130,8 @@ export interface GoogleSeedConfig {
   calendars?: GoogleSeedCalendar[];
   calendar_events?: GoogleSeedCalendarEvent[];
   drive_items?: GoogleSeedDriveItem[];
+  service_accounts?: GoogleSeedServiceAccount[];
+  domain_wide_delegation?: GoogleSeedDelegation[];
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -320,6 +324,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
       ensureSystemLabels(gs, user.email);
     }
   }
+
+  seedServiceAccounts(store, config.service_accounts, config.domain_wide_delegation);
 
   if (config.oauth_clients) {
     for (const client of config.oauth_clients) {
