@@ -33,6 +33,8 @@ export type TwilioCallStatus =
   | "no-answer"
   | "canceled";
 export type TwilioCallDirection = "inbound" | "outbound-api" | "outbound-dial" | "outbound-call";
+export type TwilioAvailablePhoneNumberType = "local" | "mobile" | "toll_free";
+export type TwilioAddressRequirements = "none" | "any" | "local" | "foreign";
 
 export interface TwilioAccount extends Entity {
   sid: string;
@@ -77,6 +79,28 @@ export interface TwilioIncomingPhoneNumber extends Entity {
   voice_method: string;
   status_callback: string | null;
   application_sid: string | null;
+}
+
+export interface TwilioAvailablePhoneNumber extends Entity {
+  phone_number: string;
+  friendly_name: string;
+  iso_country: string;
+  type: TwilioAvailablePhoneNumberType;
+  lata: string | null;
+  locality: string | null;
+  rate_center: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  region: string | null;
+  postal_code: string | null;
+  address_requirements: TwilioAddressRequirements;
+  beta: boolean;
+  capabilities: {
+    voice: boolean;
+    sms: boolean;
+    mms: boolean;
+    fax: boolean;
+  };
 }
 
 export interface TwilioMessagingService extends Entity {

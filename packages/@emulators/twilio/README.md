@@ -12,7 +12,7 @@ Run it through the CLI:
 npx emulate --service twilio
 ```
 
-The first supported surface includes seeded Account SID/Auth Token credentials, API key credentials, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, simulator routes, and an inspector.
+The first supported surface includes seeded Account SID/Auth Token credentials, API key credentials, incoming phone numbers, available phone number search, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, simulator routes, and an inspector.
 
 Default local credentials:
 

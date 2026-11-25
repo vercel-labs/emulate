@@ -3,6 +3,7 @@ import type {
   TwilioAccount,
   TwilioApiKey,
   TwilioApplication,
+  TwilioAvailablePhoneNumber,
   TwilioCall,
   TwilioConversation,
   TwilioConversationMessage,
@@ -23,6 +24,7 @@ export interface TwilioStore {
   apiKeys: Collection<TwilioApiKey>;
   applications: Collection<TwilioApplication>;
   phoneNumbers: Collection<TwilioIncomingPhoneNumber>;
+  availablePhoneNumbers: Collection<TwilioAvailablePhoneNumber>;
   messagingServices: Collection<TwilioMessagingService>;
   messagingServicePhoneNumbers: Collection<TwilioMessagingServicePhoneNumber>;
   messages: Collection<TwilioMessage>;
@@ -46,6 +48,10 @@ export function getTwilioStore(store: Store): TwilioStore {
       "sid",
       "account_sid",
       "phone_number",
+    ]),
+    availablePhoneNumbers: store.collection<TwilioAvailablePhoneNumber>("twilio.available_phone_numbers", [
+      "phone_number",
+      "iso_country",
     ]),
     messagingServices: store.collection<TwilioMessagingService>("twilio.messaging_services", ["sid", "account_sid"]),
     messagingServicePhoneNumbers: store.collection<TwilioMessagingServicePhoneNumber>(

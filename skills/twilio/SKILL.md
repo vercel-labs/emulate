@@ -1,12 +1,12 @@
 ---
 name: twilio
-description: Emulated Twilio REST APIs for local development and testing. Use when the user needs to test Twilio Messaging, Verify, Voice, phone numbers, webhooks, status callbacks, inbound SMS simulation, or Twilio SDK integrations without hitting the real Twilio service.
+description: Emulated Twilio REST APIs for local development and testing. Use when the user needs to test Twilio Messaging, Verify, Voice, phone numbers, available phone number search, webhooks, status callbacks, inbound SMS simulation, or Twilio SDK integrations without hitting the real Twilio service.
 allowed-tools: Bash(npx emulate:*)
 ---
 
 # Twilio API Emulator
 
-Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
+Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, available phone number search, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
 
 ## Start
 
@@ -50,6 +50,10 @@ Only an `active` account can send messages or place calls. A `suspended` or `clo
 
 ## Core Routes
 
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Local.json` - search local numbers to buy
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Mobile.json` - search mobile numbers to buy
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/TollFree.json` - search toll-free numbers to buy
+- `POST /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json` - buy a number
 - `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` - create outbound message
 - `GET /2010-04-01/Accounts/{AccountSid}/Messages.json` - list messages
 - `POST /2010-04-01/Accounts/{AccountSid}/Calls.json` - create outbound call
@@ -61,6 +65,16 @@ Only an `active` account can send messages or place calls. A `suspended` or `clo
 - `POST /_twilio/simulate/inbound-message` - simulate inbound SMS
 - `POST /_twilio/simulate/message-status` - simulate message status callback
 - `POST /_twilio/simulate/inbound-call` - simulate inbound call
+
+## Number Search
+
+- Searches return `available_phone_numbers` seed entries for the requested country and `type`. `Local.json` returns `local` entries, `Mobile.json` returns `mobile` entries, and `TollFree.json` returns `toll_free` entries.
+- Without seed entries for a country and type, local `US` and `CA` searches return generated numbers from the fictional 555-0100 to 555-0199 range, such as `+13065550100` for `AreaCode=306`.
+- Without an `AreaCode`, generated `US` numbers use 415 and generated `CA` numbers use 416.
+- `AreaCode`, `Contains`, `SmsEnabled`, `MmsEnabled`, `VoiceEnabled`, and `PageSize` filter results.
+- Numbers already bought as incoming phone numbers are left out.
+- Results use the live API's capability keys `voice`, `SMS`, `MMS`, and `fax`, while seed entries use lower-case keys.
+- An invalid `AreaCode` returns HTTP 400 with error `21451`.
 
 ## SMS And OTP Testing
 

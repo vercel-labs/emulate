@@ -4,6 +4,7 @@ import { fixedSid, twilioSid } from "./ids.js";
 import { getTwilioStore } from "./store.js";
 import { accountRoutes } from "./routes/accounts.js";
 import { phoneNumberRoutes } from "./routes/phone-numbers.js";
+import { availablePhoneNumberRoutes } from "./routes/available-phone-numbers.js";
 import { messagingServiceRoutes } from "./routes/messaging-services.js";
 import { messageRoutes } from "./routes/messages.js";
 import { verifyRoutes } from "./routes/verify.js";
@@ -37,6 +38,27 @@ export interface TwilioSeedConfig {
     voice_url?: string;
     voice_method?: string;
     status_callback?: string;
+  }>;
+  available_phone_numbers?: Array<{
+    phone_number: string;
+    friendly_name?: string;
+    iso_country?: string;
+    type?: "local" | "mobile" | "toll_free";
+    lata?: string;
+    locality?: string;
+    rate_center?: string;
+    latitude?: string;
+    longitude?: string;
+    region?: string;
+    postal_code?: string;
+    address_requirements?: "none" | "any" | "local" | "foreign";
+    beta?: boolean;
+    capabilities?: {
+      voice?: boolean;
+      sms?: boolean;
+      mms?: boolean;
+      fax?: boolean;
+    };
   }>;
   messaging_services?: Array<{
     sid?: string;
@@ -177,6 +199,28 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
     });
   }
 
+  for (const number of config.available_phone_numbers ?? []) {
+    const values = {
+      phone_number: number.phone_number,
+      friendly_name: number.friendly_name ?? number.phone_number,
+      iso_country: (number.iso_country ?? "US").toUpperCase(),
+      type: number.type ?? "local",
+      lata: number.lata ?? null,
+      locality: number.locality ?? null,
+      rate_center: number.rate_center ?? null,
+      latitude: number.latitude ?? null,
+      longitude: number.longitude ?? null,
+      region: number.region ?? null,
+      postal_code: number.postal_code ?? null,
+      address_requirements: number.address_requirements ?? "none",
+      beta: number.beta ?? false,
+      capabilities: { voice: true, sms: true, mms: true, fax: false, ...number.capabilities },
+    };
+    const existing = ts.availablePhoneNumbers.findOneBy("phone_number", number.phone_number);
+    if (existing) ts.availablePhoneNumbers.update(existing.id, values);
+    else ts.availablePhoneNumbers.insert(values);
+  }
+
   for (const serviceCfg of config.messaging_services ?? []) {
     let service = serviceCfg.sid
       ? ts.messagingServices.findOneBy("sid", serviceCfg.sid)
@@ -262,6 +306,7 @@ export const twilioPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     accountRoutes(ctx);
     phoneNumberRoutes(ctx);
+    availablePhoneNumberRoutes(ctx);
     messagingServiceRoutes(ctx);
     messageRoutes(ctx);
     verifyRoutes(ctx);
