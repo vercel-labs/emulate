@@ -25,6 +25,7 @@ npm install @emulators/github
 ### Repositories
 - `GET /repos/:owner/:repo` — get repo
 - `GET /repositories/:id` — get repo by numeric ID
+- `GET /user/repos` — list the authenticated user's repos, including organization repos (filter by affiliation, visibility, type)
 - `POST /user/repos` — create user repo
 - `POST /orgs/:org/repos` — create org repo
 - `PATCH /repos/:owner/:repo` — update repo
@@ -50,7 +51,7 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/compare/:base...:head` — compare two refs
 
 ### Issues
-- `GET /repos/:owner/:repo/issues` — list (filter by state, labels, assignee, milestone, creator, since)
+- `GET /repos/:owner/:repo/issues` — list issues and pull requests (filter by state, labels, assignee, milestone, creator, since)
 - `POST /repos/:owner/:repo/issues` — create
 - `GET /repos/:owner/:repo/issues/:number` — get
 - `PATCH /repos/:owner/:repo/issues/:number` — update (state transitions, events)
@@ -67,6 +68,7 @@ npm install @emulators/github
 - `PUT /repos/:owner/:repo/pulls/:number/merge` — merge (with branch protection enforcement)
 - `GET /repos/:owner/:repo/pulls/:number/commits` — list commits
 - `GET /repos/:owner/:repo/pulls/:number/files` — list files
+- A pull request's head SHA, commits, and files follow new commits pushed to its head branch
 - `POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` — manage reviewers
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` — update branch
 
@@ -75,6 +77,13 @@ npm install @emulators/github
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
+- Issues and pull requests expose a `comments` count and a `reactions` rollup that update as comments and reactions are added
+
+### Reactions
+- `GET/POST/DELETE /repos/:owner/:repo/issues/:number/reactions` — reactions on issues and pull requests
+- `GET/POST/DELETE /repos/:owner/:repo/issues/comments/:id/reactions` — reactions on issue comments
+- `GET/POST/DELETE /repos/:owner/:repo/pulls/comments/:id/reactions` — reactions on review comments
+- `GET/POST/DELETE /repos/:owner/:repo/comments/:id/reactions` — reactions on commit comments
 
 ### Reviews
 - `GET /repos/:owner/:repo/pulls/:number/reviews` — list

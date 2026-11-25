@@ -23,6 +23,52 @@ function listReposForUser(gh: GitHubStore, user: GitHubUser, type: "all" | "owne
   return Array.from(map.values());
 }
 
+type Affiliation = "owner" | "collaborator" | "organization_member";
+
+const AFFILIATIONS: readonly Affiliation[] = ["owner", "collaborator", "organization_member"];
+
+const VISIBILITIES = ["all", "public", "private", "internal"] as const;
+type Visibility = (typeof VISIBILITIES)[number];
+
+/** The repositories a caller reaches through each affiliation: owned, collaborated on, or owned by an org they belong to. */
+function reposForAffiliations(gh: GitHubStore, user: GitHubUser, affiliations: Set<Affiliation>): GitHubRepo[] {
+  const out = new Map<number, GitHubRepo>();
+
+  if (affiliations.has("owner")) {
+    for (const repo of gh.repos.all()) {
+      if (repo.owner_id === user.id && repo.owner_type === "User") out.set(repo.id, repo);
+    }
+  }
+
+  if (affiliations.has("collaborator")) {
+    for (const collaboration of gh.collaborators.findBy("user_id", user.id)) {
+      const repo = gh.repos.get(collaboration.repo_id);
+      if (!repo) continue;
+      // An owner's own repositories are an owner affiliation, not a collaborator one.
+      if (repo.owner_id === user.id && repo.owner_type === "User") continue;
+      out.set(repo.id, repo);
+    }
+  }
+
+  if (affiliations.has("organization_member")) {
+    const orgIds = new Set<number>();
+    for (const membership of gh.teamMembers.findBy("user_id", user.id)) {
+      const team = gh.teams.get(membership.team_id);
+      if (team) orgIds.add(team.org_id);
+    }
+    for (const repo of gh.repos.all()) {
+      if (repo.owner_type === "Organization" && orgIds.has(repo.owner_id)) out.set(repo.id, repo);
+    }
+  }
+
+  return Array.from(out.values());
+}
+
+function repoVisibility(repo: GitHubRepo): Visibility {
+  if (repo.visibility === "internal") return "internal";
+  return repo.private ? "private" : "public";
+}
+
 function sortRepos(
   repos: GitHubRepo[],
   sort: "created" | "updated" | "pushed" | "full_name",
@@ -129,11 +175,37 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     const authUser = c.get("authUser");
     const user = assertAuthenticatedUser(gh, authUser);
 
-    const typeRaw = (c.req.query("type") ?? "all").toLowerCase();
-    if (typeRaw !== "all" && typeRaw !== "owner" && typeRaw !== "member") {
-      throw new ApiError(422, "Invalid type parameter");
+    // `affiliation` names which relationships to include; GitHub ignores `type` when it is present.
+    const affiliationRaw = c.req.query("affiliation");
+    let affiliations: Set<Affiliation>;
+    if (affiliationRaw !== undefined) {
+      const parts = affiliationRaw
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (parts.length === 0 || !parts.every((part) => (AFFILIATIONS as readonly string[]).includes(part))) {
+        throw new ApiError(422, "Invalid affiliation parameter");
+      }
+      affiliations = new Set(parts as Affiliation[]);
+    } else {
+      const typeRaw = (c.req.query("type") ?? "all").toLowerCase();
+      if (typeRaw !== "all" && typeRaw !== "owner" && typeRaw !== "member") {
+        throw new ApiError(422, "Invalid type parameter");
+      }
+      // `member` means repositories reached through organization membership; collaborators come with `all`.
+      affiliations =
+        typeRaw === "owner"
+          ? new Set<Affiliation>(["owner"])
+          : typeRaw === "member"
+            ? new Set<Affiliation>(["organization_member"])
+            : new Set<Affiliation>(AFFILIATIONS);
     }
-    const type = typeRaw as "all" | "owner" | "member";
+
+    const visibilityRaw = (c.req.query("visibility") ?? "all").toLowerCase();
+    if (!(VISIBILITIES as readonly string[]).includes(visibilityRaw)) {
+      throw new ApiError(422, "Invalid visibility parameter");
+    }
+    const visibility = visibilityRaw as Visibility;
 
     const sortRaw = (c.req.query("sort") ?? "full_name").toLowerCase();
     if (sortRaw !== "created" && sortRaw !== "updated" && sortRaw !== "pushed" && sortRaw !== "full_name") {
@@ -149,8 +221,8 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     const { page, per_page } = parsePagination(c);
-    const allRepos = sortRepos(listReposForUser(gh, user, type), sort, direction).filter((r) =>
-      canAccessRepo(gh, authUser, r),
+    const allRepos = sortRepos(reposForAffiliations(gh, user, affiliations), sort, direction).filter(
+      (repo) => canAccessRepo(gh, authUser, repo) && (visibility === "all" || repoVisibility(repo) === visibility),
     );
     const total = allRepos.length;
     const start = (page - 1) * per_page;

@@ -193,6 +193,19 @@ export interface GitHubMilestone extends Entity {
   creator_id: number;
 }
 
+export type GitHubReactionContent = "+1" | "-1" | "laugh" | "hooray" | "confused" | "heart" | "rocket" | "eyes";
+
+export interface GitHubReaction extends Entity {
+  node_id: string;
+  repo_id: number;
+  /** Set for reactions on an issue or pull request, by the shared issue number. */
+  issue_number: number | null;
+  /** Set for reactions on a comment. */
+  comment_id: number | null;
+  user_id: number;
+  content: GitHubReactionContent;
+}
+
 export interface GitHubComment extends Entity {
   node_id: string;
   repo_id: number;

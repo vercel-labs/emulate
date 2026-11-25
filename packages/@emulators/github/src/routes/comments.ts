@@ -74,6 +74,10 @@ function parseCommentSort(c: Context, defaultDirection: "asc" | "desc") {
 
 function adjustIssueCommentCount(gh: GitHubStore, issue: GitHubIssue, delta: number) {
   gh.issues.update(issue.id, { comments: Math.max(0, issue.comments + delta) });
+  // A pull request reads its comment count from its own row; keep the two in step.
+  if (!issue.is_pull_request) return;
+  const pr = gh.pullRequests.findBy("repo_id", issue.repo_id).find((candidate) => candidate.number === issue.number);
+  if (pr) gh.pullRequests.update(pr.id, { comments: Math.max(0, pr.comments + delta) });
 }
 
 function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delta: number) {

@@ -19,6 +19,11 @@ function findIssueForRepo(gh: GitHubStore, repoId: number, issueNumber: number):
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber && !i.is_pull_request);
 }
 
+/** Reads answer for pull requests too: GitHub serves them from the issues endpoints, marked with `pull_request`. */
+function findIssueOrPullForRepo(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
+  return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
+}
+
 function adjustRepoOpenIssues(gh: GitHubStore, repoId: number, delta: number) {
   const repo = gh.repos.get(repoId);
   if (!repo) return;
@@ -213,7 +218,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const { page, per_page } = parsePagination(c);
     const { state, labelNames, sort, direction, milestoneQ, assigneeQ, creatorQ, sinceQ } = parseIssueListFilters(c);
 
-    let list = gh.issues.findBy("repo_id", repo.id).filter((i) => !i.is_pull_request);
+    let list = gh.issues.findBy("repo_id", repo.id);
 
     if (state === "open") list = list.filter((i) => i.state === "open");
     else if (state === "closed") list = list.filter((i) => i.state === "closed");
@@ -367,8 +372,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
-    const issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    const issue = findIssueOrPullForRepo(gh, repo.id, issueNumber);
+    if (!issue) throw notFoundResponse();
 
     const json = formatIssue(issue, gh, baseUrl);
     if (!json) throw notFoundResponse();
