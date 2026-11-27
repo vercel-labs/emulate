@@ -1,17 +1,17 @@
 import type { BlobRouteContext } from "./context.js";
 import { MAX_DELETE_URLS } from "./constants.js";
-import { blobErr, forbidden } from "./errors.js";
-import { resolveStoreId } from "./auth.js";
+import { blobErr } from "./errors.js";
 import { resolveBlobRef } from "./paths.js";
 import { findBlobRef } from "./lookup.js";
 import { etagMatches } from "./etag.js";
 
-export function registerDelete({ app, vs, parsedBaseUrl }: BlobRouteContext): void {
+export function registerDelete({ app, vs, parsedBaseUrl, authenticate }: BlobRouteContext): void {
   // Delete.
 
   app.post("/api/blob/delete", async (c) => {
-    const storeId = resolveStoreId(c);
-    if (!storeId) return forbidden(c);
+    const auth = authenticate(c, "delete");
+    if (auth instanceof Response) return auth;
+    const { storeId } = auth;
 
     let body: unknown;
     try {
