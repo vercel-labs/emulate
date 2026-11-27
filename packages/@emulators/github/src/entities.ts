@@ -21,6 +21,14 @@ export interface GitHubUser extends Entity {
   following: number;
 }
 
+/** A user's public SSH signing key, stored separately from SSH authentication keys. */
+export interface GitHubSshSigningKey extends Entity {
+  user_id: number;
+  fingerprint: string;
+  key: string;
+  title: string;
+}
+
 export interface GitHubOrg extends Entity {
   login: string;
   node_id: string;

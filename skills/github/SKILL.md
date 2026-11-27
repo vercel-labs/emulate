@@ -248,6 +248,16 @@ curl http://localhost:4001/users/octocat/hovercard
 curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
 ```
 
+### SSH signing keys
+
+- `GET /user/ssh_signing_keys` - list the authenticated user's SSH signing keys
+- `POST /user/ssh_signing_keys` - upload a public SSH signing key
+- `GET /user/ssh_signing_keys/:ssh_signing_key_id` - get an owned SSH signing key
+- `DELETE /user/ssh_signing_keys/:ssh_signing_key_id` - delete an owned SSH signing key
+- `GET /users/:username/ssh_signing_keys` - list public SSH signing keys
+
+SSH signing keys support Ed25519, RSA and NIST ECDSA public keys, with pagination, duplicate detection and ownership checks. SSH authentication keys, certificates, hardware security-key formats and OAuth scope enforcement are not simulated.
+
 ### Repositories
 
 ```bash
